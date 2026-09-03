@@ -68,4 +68,15 @@ public sealed class PluginDiscovery
     {
         return discovered.Where(d => d.IsValid && enableStore.IsEnabled(d.Id)).ToList();
     }
+
+    /// <summary>
+    /// 宿主侧可加载集合：仅独立进程插件（entry.type=exe）。
+    /// 运行期 DLL 由扩展主机按同一来源代管执行，宿主侧仅置灰提示，不加载。
+    /// </summary>
+    public static IReadOnlyList<PluginDescriptor> FilterExeLoadable(IReadOnlyList<PluginDescriptor> discovered, PluginEnableStore enableStore)
+    {
+        return discovered.Where(d => d.IsValid
+            && enableStore.IsEnabled(d.Id)
+            && !string.Equals(d.Manifest.Entry.Type, "dll", StringComparison.OrdinalIgnoreCase)).ToList();
+    }
 }

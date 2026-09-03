@@ -203,6 +203,25 @@ public class PluginDiscoveryTests
         Assert.Equal(PluginHealth.InvalidManifest, invalid.Health(true));
     }
 
+    [Fact]
+    public void FilterExeLoadable_宿主侧仅含有效启用的exe_DLL被排除()
+    {
+        var manifests = new[]
+        {
+            new PluginDescriptor(new PluginManifest{ Id="exe-ok", DisplayName="E", Version="0.1.0", Entry=new PluginEntry{ Type="exe", Path="e.exe"}}, "p/e", []),
+            new PluginDescriptor(new PluginManifest{ Id="dll-ok", DisplayName="D", Version="0.1.0", Entry=new PluginEntry{ Type="dll", Path="d.dll"}}, "p/d", []),
+            new PluginDescriptor(new PluginManifest{ Id="exe-off", DisplayName="O", Version="0.1.0", Entry=new PluginEntry{ Type="exe", Path="o.exe"}}, "p/o", []),
+            new PluginDescriptor(new PluginManifest{ Id="exe-bad", DisplayName="B", Version="0.1.0", Entry=new PluginEntry{ Type="exe", Path="b.exe"}}, "p/b", ["bad"]),
+        };
+        var store = new PluginEnableStore(Path.Combine(Path.GetTempPath(), "mew-tmp-" + Guid.NewGuid() + ".json"));
+        store.Load();
+        store.SetEnabled("exe-off", false);
+
+        var loadable = PluginDiscovery.FilterExeLoadable(manifests, store);
+        Assert.Single(loadable);
+        Assert.Equal("exe-ok", loadable[0].Id);
+    }
+
     private static void WriteManifest(string path, string id, string display, string version, string type, string entryPath)
     {
         var m = new PluginManifest
