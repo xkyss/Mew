@@ -6,7 +6,7 @@
 
 - Windows 10/11（`Direct2D` + `Win32` 热键/托盘/浮层）
 - .NET SDK `10.0.400+`（`dotnet --version`）
-- WSL/Linux 仅可跑 `tests`，不可跑 UI
+- WSL/Linux 仅可跑 `tests`，不可跑 UI；Linux 产物进 `.build-linux/`，与 Windows 的 `.build/` 隔离，互不干扰
 
 ## 项目结构
 

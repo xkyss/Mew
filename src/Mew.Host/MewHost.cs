@@ -139,7 +139,7 @@ internal sealed class MewHost
     {
         if (IsPluginHostRunning) return;
         var exe = Path.Combine(AppContext.BaseDirectory, "Mew.PluginHost.exe");
-        // 开发期 fallback：.build 输出路径（Host Base 为 .../.build/Mew.Host/bin/Debug/net10.0-windows）
+        // 开发期 fallback：集中输出根上溯 4 级即得（Windows 为 .build，非 Windows 为 .build-linux）
         if (!File.Exists(exe))
         {
             var alt = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "Mew.PluginHost", "bin", "Debug", "net10.0-windows", "Mew.PluginHost.exe");
