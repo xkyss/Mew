@@ -26,13 +26,13 @@ dotnet build Mew.slnx
 dotnet run --project src/Mew.Host/Mew.Host.csproj
 ```
 
-`Mew.Host` 启动后不再自动拉起 `Mew.PluginHost`（独立启动，常驻干净）：
+`Mew.Host` 启动后直接隐藏到托盘（仅托盘与呼出浮层常驻）：
 
-- 首启停留在宿主窗口（托盘与呼出浮层常驻中，五区未启动），不自动隐藏
-- 显示主窗口与托盘左键只显示宿主，不顺手拉起五区
+- 首启不展示主窗口，不拉起扩展主机
+- 托盘左键呼出搜索浮层，右键菜单可显示主窗口、打开/重启扩展主机，均不顺手拉起五区
 - 仅经宿主窗口“打开扩展主机”按钮或托盘右键“打开扩展主机”手动拉起
 - 开发期 fallback 路径：`Host` 会到 `.build/Mew.PluginHost/bin/Debug/net10.0-windows/Mew.PluginHost.exe`
-- 托盘常驻：关闭主窗口仅隐藏，托盘 `显示主窗口` / `打开扩展主机` / `重启扩展主机` / `退出`，浮层 `Ctrl+Alt+Space`
+- 托盘常驻：首启即隐藏，左键呼出浮层，右键 `显示主窗口` / `打开扩展主机` / `重启扩展主机` / `退出`，浮层 `Ctrl+Alt+Space`
 - 退出宿主不再终止扩展主机进程；扩展主机退出后仅标记，不自动拉起
 
 单独调试扩展主机：
@@ -114,7 +114,8 @@ dotnet publish src/Mew.PluginHost -c Release -r win-x64 -o publish
 ```
 %APPDATA%\Mew\settings.json   # 根节 themeMode/overlayHotkey + 模块节（按插件 id 分）
 %APPDATA%\Mew\layout.json     # Workbench 布局（含 settings 文档迁移）
-%APPDATA%\Mew\host.log        # 扩展主机拉起/退出、插件崩溃/断开、ping/pong 可观测
+%APPDATA%\Mew\host.log        # 呼出热键注册结果、扩展主机拉起/退出、插件崩溃/断开、ping/pong 可观测
+%APPDATA%\Mew\plugin-host.log  # 扩展主机启动与未处理异常（崩溃排障先看它）
 ```
 
 设置入口：`设置 → 外观 / 热键 / 插件 / 数据（Launcher）`，插件列表显示 `已启用/已禁用/清单错误/ID 重复/需 JIT/已崩溃`，清单错误仅影响该插件。
