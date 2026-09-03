@@ -81,8 +81,8 @@ internal sealed class MewHost
         // 全量名单写入快照：扩展主机按单加载，不再自扫（快照缺失回退本地扫描）
         new PluginSnapshotStore().Save(full);
 
-        var overlayHotkeyRegistered = _hotkeys.Register(window.Handle, _overlayHotkey, _overlayWindow.ShowOverlay, "浮层呼出键");
-        Log(overlayHotkeyRegistered ? $"呼出热键已注册：{_overlayHotkey}" : $"呼出热键注册失败：{_overlayHotkey}（可能被占用或句柄无效）");
+        // 注册前句柄基线：若 show 前后句柄变化，热键必须绑 show 后的句柄才有效
+        var preShowHandle = window.Handle;
 
         // 托盘与浮层为常驻能力，必须可用
         window.Content = BuildHostPlaceholder();
@@ -92,7 +92,10 @@ internal sealed class MewHost
         window.Loaded += () =>
         {
             ApplyWindowIcon(window);
-            _tray = new TrayIcon(window.Handle, Quit, EnsurePluginHostRunning, RestartPluginHost, () => _overlayWindow.ShowOverlay());
+            Log($"热键句柄比对：show前={preShowHandle:X}，当前={window.Handle:X}");
+            var overlayHotkeyRegistered = _hotkeys.Register(window.Handle, _overlayHotkey, () => { Log("呼出热键触发"); _overlayWindow.ToggleOverlay(); }, "浮层呼出键");
+            Log(overlayHotkeyRegistered ? $"呼出热键已注册：{_overlayHotkey}" : $"呼出热键注册失败：{_overlayHotkey}（可能被占用或句柄无效）");
+            _tray = new TrayIcon(window.Handle, Quit, EnsurePluginHostRunning, RestartPluginHost, () => _overlayWindow.ToggleOverlay());
             _tray.Add();
             if (!overlayHotkeyRegistered)
             {
@@ -107,7 +110,7 @@ internal sealed class MewHost
         window.NativeMessage += args =>
         {
             if (args is not Win32NativeMessageEventArgs e) return;
-            if (e.Msg == HotkeyService.WmHotkey) { _hotkeys.Dispatch((int)e.WParam); args.Handled = true; }
+            if (e.Msg == HotkeyService.WmHotkey) { Log($"收到热键消息 id={e.WParam}"); _hotkeys.Dispatch((int)e.WParam); args.Handled = true; }
             else if (e.Msg == TrayIcon.WmCallback && _tray is not null) { _tray.HandleCallback((uint)e.WParam, (uint)e.LParam); args.Handled = true; }
         };
 

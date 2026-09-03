@@ -32,7 +32,7 @@ dotnet run --project src/Mew.Host/Mew.Host.csproj
 - 托盘左键呼出搜索浮层，右键菜单可打开/重启扩展主机，均不顺手拉起五区
 - 仅经宿主窗口“打开扩展主机”按钮或托盘右键“打开扩展主机”手动拉起
 - 开发期 fallback 路径：`Host` 会到 `.build/Mew.PluginHost/bin/Debug/net10.0-windows/Mew.PluginHost.exe`
-- 托盘常驻：首启即隐藏，左键呼出浮层，右键 `打开扩展主机` / `重启扩展主机` / `退出`，浮层 `Alt+Space`；失败告警（热键被占、扩展主机缺失）会亮出主窗口
+- 托盘常驻：首启即隐藏，左键呼出/隐藏浮层，右键 `打开扩展主机` / `重启扩展主机` / `退出`，浮层 `Alt+Space` 按一次呼出、再按隐藏；失败告警（热键被占、扩展主机缺失）会亮出主窗口
 - 退出宿主不再终止扩展主机进程；扩展主机退出后仅标记，不自动拉起
 
 单独调试扩展主机：
@@ -122,7 +122,7 @@ dotnet publish src/Mew.PluginHost -c Release -r win-x64 -o publish
 
 ## 热键
 
-- 呼出浮层：`Alt+Space`（可在 `设置 → 热键` 捕获改绑，冲突时点名占用方）
+- 呼出浮层：`Alt+Space` 按一次呼出、再按隐藏（可在 `设置 → 热键` 捕获改绑，冲突时点名占用方）
 - 插件热键：由清单 `capabilities.hotkeys` 声明，经宿主 `IHotkeyService` 集中注册，触发后经 `hotkeyTriggered` 通知归属插件
 
 ## 浮层搜索

@@ -23,6 +23,7 @@ public sealed class OverlayWindow : IOverlayService
     private readonly StackPanel _resultPanel = new();
     private List<OverlayResultEntry> _results = [];
     private readonly SelectionModel _selection = new();
+    private bool _visible;
 
     public OverlayWindow(Window owner, WorkbenchThemeContext theme)
     {
@@ -39,7 +40,7 @@ public sealed class OverlayWindow : IOverlayService
         _window.Content = BuildContent();
         _window.PreviewKeyDown += OnKeyDown;
         _searchBox.TextChanged += text => Refresh(text);
-        _window.Deactivated += () => _window.Hide();
+        _window.Deactivated += () => HideOverlay();
     }
 
     /// <summary>注册搜索源;运行期注册后立即按当前查询刷新结果。</summary>
@@ -51,12 +52,26 @@ public sealed class OverlayWindow : IOverlayService
 
     public void ShowOverlay()
     {
+        _visible = true;
         _window.Show(_owner);
         PositionOverlay();
         _window.Activate();
         _searchBox.Text = "";
         _searchBox.Focus();
         Refresh("");
+    }
+
+    /// <summary>热键/托盘切换：可见则隐藏，否则呼出。</summary>
+    public void ToggleOverlay()
+    {
+        if (_visible) HideOverlay();
+        else ShowOverlay();
+    }
+
+    private void HideOverlay()
+    {
+        _visible = false;
+        _window.Hide();
     }
 
     private UIElement BuildContent() => new Border()
@@ -85,7 +100,7 @@ public sealed class OverlayWindow : IOverlayService
         switch (e.Key)
         {
             case Key.Escape:
-                _window.Hide();
+                HideOverlay();
                 e.Handled = true;
                 break;
 
@@ -157,7 +172,7 @@ public sealed class OverlayWindow : IOverlayService
     private void Activate(OverlayResultEntry entry)
     {
         entry.Result.Activate();
-        _window.Hide();
+        HideOverlay();
     }
 
     private static class User32
