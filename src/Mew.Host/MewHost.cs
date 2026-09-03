@@ -82,6 +82,7 @@ internal sealed class MewHost
         new PluginSnapshotStore().Save(full);
 
         var overlayHotkeyRegistered = _hotkeys.Register(window.Handle, _overlayHotkey, _overlayWindow.ShowOverlay, "浮层呼出键");
+        Log(overlayHotkeyRegistered ? $"呼出热键已注册：{_overlayHotkey}" : $"呼出热键注册失败：{_overlayHotkey}（可能被占用或句柄无效）");
 
         // 托盘与浮层为常驻能力，必须可用
         window.Content = BuildHostPlaceholder();
