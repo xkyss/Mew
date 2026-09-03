@@ -23,17 +23,19 @@ public sealed class TrayIcon : IDisposable
     private readonly Action _quit;
     private readonly Action? _openWorkspace;
     private readonly Action? _restartWorkspace;
+    private readonly Action? _leftClick;
     private readonly IntPtr _menu;
     private readonly IntPtr _icon;
     private NotifyIconData _nid;
 
-    public TrayIcon(IntPtr windowHandle, Action showMain, Action quit, Action? openWorkspace = null, Action? restartWorkspace = null)
+    public TrayIcon(IntPtr windowHandle, Action showMain, Action quit, Action? openWorkspace = null, Action? restartWorkspace = null, Action? leftClick = null)
     {
         _windowHandle = windowHandle;
         _showMain = showMain;
         _quit = quit;
         _openWorkspace = openWorkspace;
         _restartWorkspace = restartWorkspace;
+        _leftClick = leftClick;
 
         using var sourceIcon = Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
         _icon = CopyIcon(sourceIcon.Handle);
@@ -68,7 +70,7 @@ public sealed class TrayIcon : IDisposable
         switch (lParam)
         {
             case WmLButtonUp:
-                _showMain();
+                DispatchLeftClick(_leftClick, _showMain);
                 return true;
             case WmRButtonUp:
                 ShowMenu();
@@ -84,6 +86,9 @@ public sealed class TrayIcon : IDisposable
         var command = (int)TrackPopupMenu(_menu, TpmReturnCmd | TpmRightAlign | TpmBottomAlign, pos.X, pos.Y, 0, _windowHandle, IntPtr.Zero);
         HandleMenuCommand(command);
     }
+
+    /// <summary>左键分发（纯逻辑，可单测）：有自定义动作则执行，否则回退显示主窗口。</summary>
+    public static void DispatchLeftClick(Action? leftClick, Action showMain) => (leftClick ?? showMain)();
 
     /// <summary>托盘菜单分发（纯逻辑，可单测）：左键与菜单项只调对应动作，不附带拉起等副作用。</summary>
     public void HandleMenuCommand(int command) => TryDispatchMenu(command, _showMain, _quit, _openWorkspace, _restartWorkspace);

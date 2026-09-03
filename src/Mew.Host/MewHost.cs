@@ -94,9 +94,9 @@ internal sealed class MewHost
             ApplyWindowIcon(window);
             if (!overlayHotkeyRegistered)
                 window.ShowToast($"⚠ 呼出热键 {_overlayHotkey} 注册失败(可能已被其他程序占用)");
-            _tray = new TrayIcon(window.Handle, ShowMain, Quit, EnsurePluginHostRunning, RestartPluginHost);
+            _tray = new TrayIcon(window.Handle, ShowMain, Quit, EnsurePluginHostRunning, RestartPluginHost, () => _overlayWindow.ShowOverlay());
             _tray.Add();
-            // 独立启动：首启不拉起扩展主机，宿主窗口保持可见，仅经用户手动打开
+            // 托盘常驻：首启直接隐藏，仅留托盘与浮层，主窗口经托盘右键备用打开
         };
 
         window.NativeMessage += args =>

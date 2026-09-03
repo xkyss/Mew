@@ -74,4 +74,20 @@ public class TrayIconMenuTests
         Assert.False(ok);
         Assert.Empty(calls);
     }
+
+    [Fact]
+    public void LeftClick_有自定义动作_执行它_不显示主窗口()
+    {
+        var calls = new List<string>();
+        TrayIcon.DispatchLeftClick(() => calls.Add("overlay"), () => calls.Add("show"));
+        Assert.Equal(["overlay"], calls);
+    }
+
+    [Fact]
+    public void LeftClick_无自定义动作_回退显示主窗口()
+    {
+        var calls = new List<string>();
+        TrayIcon.DispatchLeftClick(null, () => calls.Add("show"));
+        Assert.Equal(["show"], calls);
+    }
 }
