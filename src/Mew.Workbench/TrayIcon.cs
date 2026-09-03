@@ -4,8 +4,8 @@ using System.Runtime.InteropServices;
 namespace Mew.Workbench;
 
 /// <summary>
-/// 托盘常驻图标:关闭主窗口不退出,隐藏到托盘;左键点击显示主窗口,右键菜单可显示或退出;
-/// 回调消息(WM_APP)经主窗口 NativeMessage 路由,隐藏期间全局热键照常。
+/// 托盘常驻图标:首启即隐藏，仅留托盘与全局热键;左键呼出浮层，右键菜单打开/重启扩展主机或退出。
+/// 回调消息(WM_APP)经主窗口 NativeMessage 路由，隐藏期间全局热键照常。
 /// </summary>
 public sealed class TrayIcon : IDisposable
 {
@@ -13,13 +13,11 @@ public sealed class TrayIcon : IDisposable
     public const uint WmCallback = CallbackMessage;
     private const uint WmLButtonUp = 0x0202;
     private const uint WmRButtonUp = 0x0205;
-    public const int MenuShowMain = 1;
-    public const int MenuQuit = 2;
-    public const int MenuOpenWorkspace = 3;
-    public const int MenuRestartWorkspace = 4;
+    public const int MenuQuit = 1;
+    public const int MenuOpenWorkspace = 2;
+    public const int MenuRestartWorkspace = 3;
 
     private readonly IntPtr _windowHandle;
-    private readonly Action _showMain;
     private readonly Action _quit;
     private readonly Action? _openWorkspace;
     private readonly Action? _restartWorkspace;
@@ -28,10 +26,9 @@ public sealed class TrayIcon : IDisposable
     private readonly IntPtr _icon;
     private NotifyIconData _nid;
 
-    public TrayIcon(IntPtr windowHandle, Action showMain, Action quit, Action? openWorkspace = null, Action? restartWorkspace = null, Action? leftClick = null)
+    public TrayIcon(IntPtr windowHandle, Action quit, Action? openWorkspace = null, Action? restartWorkspace = null, Action? leftClick = null)
     {
         _windowHandle = windowHandle;
-        _showMain = showMain;
         _quit = quit;
         _openWorkspace = openWorkspace;
         _restartWorkspace = restartWorkspace;
@@ -52,7 +49,6 @@ public sealed class TrayIcon : IDisposable
         };
 
         _menu = CreatePopupMenu();
-        AppendMenu(_menu, 0, (UIntPtr)MenuShowMain, "显示主窗口");
         AppendMenu(_menu, 0, (UIntPtr)MenuOpenWorkspace, "打开扩展主机");
         AppendMenu(_menu, 0, (UIntPtr)MenuRestartWorkspace, "重启扩展主机");
         AppendMenu(_menu, 0, (UIntPtr)MenuQuit, "退出");
@@ -70,7 +66,7 @@ public sealed class TrayIcon : IDisposable
         switch (lParam)
         {
             case WmLButtonUp:
-                DispatchLeftClick(_leftClick, _showMain);
+                DispatchLeftClick(_leftClick);
                 return true;
             case WmRButtonUp:
                 ShowMenu();
@@ -87,20 +83,22 @@ public sealed class TrayIcon : IDisposable
         HandleMenuCommand(command);
     }
 
-    /// <summary>左键分发（纯逻辑，可单测）：有自定义动作则执行，否则回退显示主窗口。</summary>
-    public static void DispatchLeftClick(Action? leftClick, Action showMain) => (leftClick ?? showMain)();
+    /// <summary>左键分发（纯逻辑，可单测）：有自定义动作则执行并返回真，否则返回假。</summary>
+    public static bool DispatchLeftClick(Action? leftClick)
+    {
+        if (leftClick == null) return false;
+        leftClick();
+        return true;
+    }
 
     /// <summary>托盘菜单分发（纯逻辑，可单测）：左键与菜单项只调对应动作，不附带拉起等副作用。</summary>
-    public void HandleMenuCommand(int command) => TryDispatchMenu(command, _showMain, _quit, _openWorkspace, _restartWorkspace);
+    public void HandleMenuCommand(int command) => TryDispatchMenu(command, _quit, _openWorkspace, _restartWorkspace);
 
     /// <summary>菜单分发表：未知 id 返回 false，已知 id 执行对应动作（动作为空时跳过）。</summary>
-    public static bool TryDispatchMenu(int command, Action showMain, Action quit, Action? openWorkspace, Action? restartWorkspace)
+    public static bool TryDispatchMenu(int command, Action quit, Action? openWorkspace, Action? restartWorkspace)
     {
         switch (command)
         {
-            case MenuShowMain:
-                showMain();
-                return true;
             case MenuOpenWorkspace:
                 openWorkspace?.Invoke();
                 return true;

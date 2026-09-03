@@ -92,11 +92,16 @@ internal sealed class MewHost
         window.Loaded += () =>
         {
             ApplyWindowIcon(window);
-            if (!overlayHotkeyRegistered)
-                window.ShowToast($"⚠ 呼出热键 {_overlayHotkey} 注册失败(可能已被其他程序占用)");
-            _tray = new TrayIcon(window.Handle, ShowMain, Quit, EnsurePluginHostRunning, RestartPluginHost, () => _overlayWindow.ShowOverlay());
+            _tray = new TrayIcon(window.Handle, Quit, EnsurePluginHostRunning, RestartPluginHost, () => _overlayWindow.ShowOverlay());
             _tray.Add();
-            // 托盘常驻：首启直接隐藏，仅留托盘与浮层，主窗口经托盘右键备用打开
+            if (!overlayHotkeyRegistered)
+            {
+                // 有告警时亮出主窗口，否则首启直接隐藏（提示在隐藏窗口上不可见）
+                window.ShowToast($"⚠ 呼出热键 {_overlayHotkey} 注册失败(可能已被其他程序占用)");
+                window.Show(null!);
+                window.Activate();
+            }
+            else window.Hide();
         };
 
         window.NativeMessage += args =>
@@ -110,12 +115,6 @@ internal sealed class MewHost
         _windowIcon?.Dispose();
         DestroyWindowIcons();
         // 独立生死：宿主退出不再终止扩展主机进程
-
-        void ShowMain()
-        {
-            window.Show(null!);
-            window.Activate();
-        }
 
         void Quit()
         {
@@ -148,8 +147,7 @@ internal sealed class MewHost
         }
         if (!File.Exists(exe))
         {
-            Log($"扩展主机缺失：{exe}");
-            try { _window.ShowToast("未找到扩展主机（Mew.PluginHost.exe），请先构建整个方案"); } catch { }
+            Warn($"扩展主机缺失：{exe}（请先构建整个方案）");
             return;
         }
         try
@@ -166,9 +164,16 @@ internal sealed class MewHost
         }
         catch (Exception ex)
         {
-            Log($"扩展主机拉起失败：{ex.Message}");
-            try { _window.ShowToast($"扩展主机拉起失败：{ex.Message}"); } catch { }
+            Warn($"扩展主机拉起失败：{ex.Message}");
         }
+    }
+
+    /// <summary>告警并亮出主窗口（常驻隐藏态下保证提示可见）。仅 UI 线程调用。</summary>
+    private void Warn(string message)
+    {
+        Log(message);
+        try { _window.ShowToast(message); _window.Show(null!); _window.Activate(); }
+        catch { }
     }
 
     private void OnPluginHostExited(object? sender, EventArgs e)

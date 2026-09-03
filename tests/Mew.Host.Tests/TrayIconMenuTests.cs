@@ -4,28 +4,17 @@ using Xunit;
 namespace Mew.Host.Tests;
 
 /// <summary>
-/// 托盘菜单分发测试（票据 01）：菜单 id 与动作一一对应，左键/显示主窗口不再附带拉起；
+/// 托盘分发测试（票据 01/05）：菜单只有打开/重启扩展主机与退出，左键呼出浮层；
 /// 仅测纯分发表，不建窗口、不调 Win32。
 /// </summary>
 public class TrayIconMenuTests
 {
     [Fact]
-    public void Dispatch_显示主窗口_仅调显示动作()
-    {
-        var calls = new List<string>();
-        var ok = TrayIcon.TryDispatchMenu(TrayIcon.MenuShowMain,
-            () => calls.Add("show"), () => calls.Add("quit"),
-            () => calls.Add("open"), () => calls.Add("restart"));
-        Assert.True(ok);
-        Assert.Equal(["show"], calls);
-    }
-
-    [Fact]
     public void Dispatch_打开扩展主机_仅调打开动作()
     {
         var calls = new List<string>();
         var ok = TrayIcon.TryDispatchMenu(TrayIcon.MenuOpenWorkspace,
-            () => calls.Add("show"), () => calls.Add("quit"),
+            () => calls.Add("quit"),
             () => calls.Add("open"), () => calls.Add("restart"));
         Assert.True(ok);
         Assert.Equal(["open"], calls);
@@ -36,7 +25,7 @@ public class TrayIconMenuTests
     {
         var calls = new List<string>();
         var ok = TrayIcon.TryDispatchMenu(TrayIcon.MenuRestartWorkspace,
-            () => calls.Add("show"), () => calls.Add("quit"),
+            () => calls.Add("quit"),
             () => calls.Add("open"), () => calls.Add("restart"));
         Assert.True(ok);
         Assert.Equal(["restart"], calls);
@@ -47,7 +36,7 @@ public class TrayIconMenuTests
     {
         var calls = new List<string>();
         var ok = TrayIcon.TryDispatchMenu(TrayIcon.MenuQuit,
-            () => calls.Add("show"), () => calls.Add("quit"),
+            () => calls.Add("quit"),
             () => calls.Add("open"), () => calls.Add("restart"));
         Assert.True(ok);
         Assert.Equal(["quit"], calls);
@@ -58,9 +47,9 @@ public class TrayIconMenuTests
     {
         var calls = new List<string>();
         Assert.True(TrayIcon.TryDispatchMenu(TrayIcon.MenuOpenWorkspace,
-            () => calls.Add("show"), () => calls.Add("quit"), null, null));
+            () => calls.Add("quit"), null, null));
         Assert.True(TrayIcon.TryDispatchMenu(TrayIcon.MenuRestartWorkspace,
-            () => calls.Add("show"), () => calls.Add("quit"), null, null));
+            () => calls.Add("quit"), null, null));
         Assert.Empty(calls);
     }
 
@@ -69,25 +58,23 @@ public class TrayIconMenuTests
     {
         var calls = new List<string>();
         var ok = TrayIcon.TryDispatchMenu(999,
-            () => calls.Add("show"), () => calls.Add("quit"),
+            () => calls.Add("quit"),
             () => calls.Add("open"), () => calls.Add("restart"));
         Assert.False(ok);
         Assert.Empty(calls);
     }
 
     [Fact]
-    public void LeftClick_有自定义动作_执行它_不显示主窗口()
+    public void LeftClick_有自定义动作_执行并返回真()
     {
         var calls = new List<string>();
-        TrayIcon.DispatchLeftClick(() => calls.Add("overlay"), () => calls.Add("show"));
+        Assert.True(TrayIcon.DispatchLeftClick(() => calls.Add("overlay")));
         Assert.Equal(["overlay"], calls);
     }
 
     [Fact]
-    public void LeftClick_无自定义动作_回退显示主窗口()
+    public void LeftClick_无自定义动作_返回假()
     {
-        var calls = new List<string>();
-        TrayIcon.DispatchLeftClick(null, () => calls.Add("show"));
-        Assert.Equal(["show"], calls);
+        Assert.False(TrayIcon.DispatchLeftClick(null));
     }
 }

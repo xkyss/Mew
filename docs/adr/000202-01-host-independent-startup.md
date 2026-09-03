@@ -31,13 +31,13 @@ Host (Mew.Host.exe, AOT)            PluginHost (Mew.PluginHost.exe, JIT)
 2. **分工**：Host 只收 `entry.type=exe`（T3 瘦插件，走 NamedPipe JSON-RPC）；PluginHost 收 T1 + `entry.type=dll`（T2 富插件，走 `IMewToolModule.Configure()` + ALC）。`RequiresJit` 的项在 Host 侧置灰（复用 `PluginDescriptor.Health(isJitAvailable)`），只在 PluginHost 的设置→插件里可管。
 3. **代管边界**：发现 + `plugins.json` 启用态只留 Host 一份；PluginHost 去掉 `Discover`，改为接收 Host 推过来的待装 dll 清单。清单 schema（`PluginManifest.Validate()`）与 `protocolVersion` 不分叉；执行面天然不同——exe 只能声明式三能力（search/settingsSection/hotkeys，越权在 register 阶段拒绝），dll/T1 可直拼五区。
 4. **身份**：PluginHost 是特殊容器（Layer2），不进插件列表、不允许禁用；Host 保留“打开/重启扩展主机”手动按钮。
-5. **手动入口**：Host 首启直接隐藏到托盘（仅托盘与浮层常驻），主窗口经托盘右键备用打开；托盘左键呼出搜索浮层，右键加“打开扩展主机/重启扩展主机”捷径，任何入口均不顺手拉起。
+5. **手动入口**：Host 首启直接隐藏到托盘（仅托盘与浮层常驻）；托盘左键呼出搜索浮层，右键“打开扩展主机/重启扩展主机”手动拉起；失败告警（热键被占、扩展主机缺失）会亮出主窗口，余时主窗口不出现。
 
 ## Consequences
 
 - `MewHost.cs`：删 `Loaded` 中的 `EnsurePluginHostRunning()+Hide`、`ShowMain` 中的 `Ensure`、`Quit`/结尾的 `Kill`、`OnPluginHostExited` 的自愈；`Ensure/Restart` 仅由两个手动按钮与托盘项触发；崩溃走 `_crashedPlugins` 标记。
 - `PluginHostApp.cs`：删 `PluginDiscovery.Discover` 自扫，改为接收 Host 名单；`Closing` 保持 `Cancel+Hide()` 语义（隐藏≠退出）；设置→插件页只列 T1+dll。
-- `TrayIcon.cs`：左键呼出浮层（无自定义动作回退显示主窗口），右键菜单加“打开扩展主机/重启扩展主机”（`ShowMain` 不再隐含拉起）。
+- `TrayIcon.cs`：无“显示主窗口”项；左键呼出浮层（空动作无操作），右键“打开扩展主机/重启扩展主机/退出”。
 - **隐藏语义钉死**：关五区窗口只是藏，进程保留秒显；真退出只走杀进程（Host 退出/重启按钮、PluginHost 内重启项）。
 - **一句话记忆**：exe 生死 Host 全权，dll 生死 PluginHost 全权，dll 看不看得见 Host 说了算。
 - 术语不变（CONTEXT.md 的插件=T2+T3、工具模块=T1/T2、扩展主机=Layer2、独立插件=T3 均继续有效）；本 ADR 是 000201 的启动/管辖补丁，不推翻 AOT 范围（000101-04）与编译期组合（000101-03）。
