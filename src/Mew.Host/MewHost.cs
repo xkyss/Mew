@@ -75,8 +75,11 @@ internal sealed class MewHost
         var discovery = new PluginDiscovery();
         var userPluginsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Mew", "Plugins");
         var installPluginsDir = Path.Combine(AppContext.BaseDirectory, "Plugins");
+        var full = discovery.Discover(userPluginsDir, installPluginsDir);
         // 宿主侧只消费独立进程插件（exe）；运行期 DLL 由扩展主机按同一来源代管，宿主侧置灰
-        _discoveredPlugins = PluginDiscovery.FilterExeLoadable(discovery.Discover(userPluginsDir, installPluginsDir), _pluginEnables);
+        _discoveredPlugins = PluginDiscovery.FilterExeLoadable(full, _pluginEnables);
+        // 全量名单写入快照：扩展主机按单加载，不再自扫（快照缺失回退本地扫描）
+        new PluginSnapshotStore().Save(full);
 
         var overlayHotkeyRegistered = _hotkeys.Register(window.Handle, _overlayHotkey, _overlayWindow.ShowOverlay, "浮层呼出键");
 

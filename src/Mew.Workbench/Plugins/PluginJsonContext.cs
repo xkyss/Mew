@@ -4,6 +4,7 @@ namespace Mew.Workbench.Plugins;
 
 [JsonSourceGenerationOptions(PropertyNameCaseInsensitive = true, WriteIndented = true)]
 [JsonSerializable(typeof(PluginManifest))]
+[JsonSerializable(typeof(List<PluginSnapshotEntry>))]
 [JsonSerializable(typeof(Dictionary<string, bool>))]
 public partial class PluginJsonContext : JsonSerializerContext
 {

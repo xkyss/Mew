@@ -63,6 +63,11 @@ public sealed class PluginDiscovery
         return all;
     }
 
+    /// <summary>宿主保留身份：扩展主机作为特殊容器永不进入插件列表。</summary>
+    public static bool IsReservedHostId(string id) =>
+        string.Equals(id, "mew-host", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(id, "mew-plugin-host", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>结合启用态，返回最终可加载集合（有效且已启用）。</summary>
     public static IReadOnlyList<PluginDescriptor> FilterLoadable(IReadOnlyList<PluginDescriptor> discovered, PluginEnableStore enableStore)
     {

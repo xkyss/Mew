@@ -100,13 +100,14 @@ dotnet publish src/Mew.PluginHost -c Release -r win-x64 -o publish
 
 字段约束：`id` 为 `kebab-case` 且全局唯一，`version` 为 `semver`，`protocolVersion` 须为 `1`（不匹配时校验失败并提示“请更新插件/宿主”），`capabilities` 未声明的能力越权注册会被拒绝，`id` 重复时后发现者拒绝。
 
-启用态：
+启用态（宿主为唯一来源，扩展主机按单加载）：
 
 ```
-%APPDATA%\Mew\plugins.json   # { "clipboard-history": true, "todo-dll": false }，默认启用
+%APPDATA%\Mew\plugins.json          # { "clipboard-history": true, "todo-dll": false }，默认启用
+%APPDATA%\Mew\plugin-snapshot.json   # 宿主扫描后写入的全量名单快照（扩展主机优先按此加载）
 ```
 
-`T2` 启用/禁用需 `设置 → 插件 → 重启扩展主机` 后生效（ALC 卸载限制）；`T3` 无需重启宿主，重启插件进程即可。
+`T2` 启用/禁用需 `设置 → 插件 → 退出扩展主机进程` 后再经宿主托盘手动打开（ALC 卸载限制）；`T3` 无需重启宿主，重启插件进程即可。扩展主机不在插件列表中，不提供禁用。
 
 ## 设置与日志
 
@@ -136,7 +137,7 @@ dotnet test Mew.slnx
 
 ## 常见问题
 
-- **扩展主机未拉起**：确认 `Mew.PluginHost.exe` 与 `Mew.Host.exe` 同目录，或已 `dotnet build` 生成 `.build` fallback；查看 `host.log`
+- **扩展主机未启动**：经宿主窗口“打开扩展主机”按钮或托盘右键“打开工作台”手动拉起；确认 `Mew.PluginHost.exe` 与 `Mew.Host.exe` 同目录，或已 `dotnet build` 生成 `.build` fallback；查看 `host.log`
 - **DLL 插件置灰**：仅分发了 AOT 单文件，需补 `Mew.PluginHost.exe`（JIT）
 - **清单标红**：检查 `id` 重复、`version` 非 semver、`entry.path` 与 `type` 不匹配、`protocolVersion != 1`
 - **热键注册失败**：已被其他程序占用或与已注册热键冲突，设置页会点名占用方

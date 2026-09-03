@@ -74,10 +74,13 @@ internal sealed class PluginHostApp
         // 插件发现：与宿主同目录扫描，展示在设置→插件列表
         _pluginEnables = new PluginEnableStore();
         _pluginEnables.Load();
-        var discovery = new PluginDiscovery();
         var userPluginsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Mew", "Plugins");
         var installPluginsDir = Path.Combine(AppContext.BaseDirectory, "Plugins");
-        _discoveredPlugins = discovery.Discover(userPluginsDir, installPluginsDir);
+        // 单一来源：优先宿主快照（缺失或损坏回退本地扫描，保证双击独立可用）
+        var fromSnapshot = new PluginSnapshotStore().Load();
+        _discoveredPlugins = fromSnapshot.Count > 0
+            ? fromSnapshot
+            : new PluginDiscovery().Discover(userPluginsDir, installPluginsDir);
 
         workbench.Theme(tc => tc.SetMode(LoadThemeMode()).SetAccent(Accent.Blue));
 
@@ -328,7 +331,8 @@ internal sealed class PluginHostApp
             _pluginPanel.Add(new Label().Text("未发现插件（将 plugin.json 置于 %APPDATA%/Mew/Plugins/<id>/）").FontSize(12).WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground)));
             return;
         }
-        foreach (var desc in _discoveredPlugins)
+        // 特殊容器永不进列表：宿主保留身份在此过滤
+        foreach (var desc in _discoveredPlugins.Where(d => !PluginDiscovery.IsReservedHostId(d.Id)))
         {
             var health = desc.Health(isJitAvailable);
             var enabled = _pluginEnables.IsEnabled(desc.Id);
