@@ -62,6 +62,24 @@ public class FaultIsolationTests
         Assert.Contains(errors, e => e.Contains("协议版本不匹配"));
     }
 
+    [Fact]
+    public void Unregister_未知id_无事件_不复活()
+    {
+        // 仅标记不自愈在服务端缝的对应：注销不存在的源不产生事件，已注销的源不会自己回来
+        var server = new IpcServer();
+        var crashed = new List<string>();
+        server.ClientDisconnected += id => crashed.Add(id);
+        server.RegisterInMemoryClient("keep", "K", 1, cap("keep"), new FakeSource("keep", "K", _ => [new SearchResult("K1", "sub", null, () => { })]), out _);
+
+        server.Unregister("ghost");
+        Assert.Empty(crashed);
+
+        server.Unregister("keep");
+        Assert.Equal(["keep"], crashed);
+        Assert.Empty(server.Search(""));
+        Assert.Empty(server.Clients);
+    }
+
     private static PluginCapabilitiesDto cap(string id) => new(new SearchCapabilityDto(id, id), null, null);
 
     private sealed class FakeSource : ISearchSource

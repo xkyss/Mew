@@ -318,8 +318,8 @@ internal sealed class PluginHostApp
         if (hasDll)
         {
             _pluginPanel.Add(new StackPanel().Orientation(Orientation.Horizontal).Spacing(8).Children(
-                new Label().Text("DLL 插件变更需重启扩展主机").FontSize(11).WithTheme((_, l) => l.Foreground(ShellIcons.HotkeyWarning)),
-                new Button().Content(new Label().Text("重启扩展主机")).CanDrag(false).OnClick(() => { _window.Close(); Environment.Exit(0); })
+                new Label().Text("DLL 插件变更需重启扩展主机（先退出进程，再经宿主托盘手动打开）").FontSize(11).WithTheme((_, l) => l.Foreground(ShellIcons.HotkeyWarning)),
+                new Button().Content(new Label().Text("退出扩展主机进程")).CanDrag(false).OnClick(() => { _window.Close(); Environment.Exit(0); })
             ));
         }
         const bool isJitAvailable = true; // 扩展主机本身为 JIT，DLL 可加载

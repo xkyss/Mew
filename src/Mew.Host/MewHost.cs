@@ -40,7 +40,6 @@ internal sealed class MewHost
     private TrayIcon? _tray;
     private IpcServer _ipcServer = null!;
     private readonly HashSet<string> _crashedPlugins = new(StringComparer.OrdinalIgnoreCase);
-    private bool _autoRestarting;
 
     internal void Run()
     {
@@ -106,7 +105,7 @@ internal sealed class MewHost
         Application.Run(window);
         _windowIcon?.Dispose();
         DestroyWindowIcons();
-        try { _pluginHostProcess?.Kill(); } catch { }
+        // 独立生死：宿主退出不再终止扩展主机进程
 
         void ShowMain()
         {
@@ -117,7 +116,6 @@ internal sealed class MewHost
         void Quit()
         {
             _tray?.Dispose();
-            try { _pluginHostProcess?.Kill(); } catch { }
             Application.Quit();
         }
     }
@@ -154,7 +152,6 @@ internal sealed class MewHost
                 proc.EnableRaisingEvents = true;
                 proc.Exited += OnPluginHostExited;
                 _pluginHostProcess = proc;
-                _autoRestarting = false;
                 Log($"扩展主机已拉起 pid={proc.Id}");
             }
         }
@@ -165,11 +162,8 @@ internal sealed class MewHost
     {
         var proc = sender as Process;
         Log($"扩展主机退出 pid={proc?.Id} code={proc?.ExitCode}");
-        if (_autoRestarting) return;
-        _autoRestarting = true;
-        // 托盘与浮层仍可用，自动拉起（Toast 需 UI 线程，暂仅日志）
-        Log("扩展主机将自动重启");
-        Task.Delay(1000).ContinueWith(_ => EnsurePluginHostRunning());
+        // 仅标记不自愈：托盘与浮层仍可用，需用户手动重新打开；IPC 断开路径另行标已崩溃
+        _pluginHostProcess = null;
     }
 
     private void Log(string message)
