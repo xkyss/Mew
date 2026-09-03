@@ -55,3 +55,11 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# Mew: centralized build output (Directory.Build.props) and publish artifacts
+.build/
+publish/
+.vs/
+.idea/
+*.user
+*.suo

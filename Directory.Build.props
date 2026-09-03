@@ -1,0 +1,22 @@
+<Project>
+    <PropertyGroup>
+        <Product>Mew</Product>
+        <Authors>xkyss</Authors>
+        <Copyright>Copyright 2023-$([System.DateTime]::Now.Year) (c) xkyss</Copyright>
+        <Version>0.2.1</Version>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <BaseIntermediateOutputPath>$(MSBuildProjectDirectory)\..\..\.build\$(MSBuildProjectName)\obj\</BaseIntermediateOutputPath>
+        <BaseOutputPath>$(MSBuildProjectDirectory)\..\..\.build\$(MSBuildProjectName)\bin\</BaseOutputPath>
+        <TargetLatestRuntimePatch>true</TargetLatestRuntimePatch>
+        <PackageOutputPath>$(MSBuildProjectDirectory)\..\..\.build\nupkg</PackageOutputPath>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+            <_Parameter1>$(MSBuildProjectName).Test</_Parameter1>
+            <_Parameter1>LINQPadQuery</_Parameter1>
+        </AssemblyAttribute>
+    </ItemGroup>
+</Project>
