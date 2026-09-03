@@ -27,7 +27,7 @@ public sealed class SettingsService : ISettingsService
     /// <summary>宿主级设置:主题模式,取值 ThemeVariant 枚举名:System/Light/Dark。</summary>
     public string? ThemeMode { get => GetString("themeMode"); set => SetString("themeMode", value); }
 
-    /// <summary>宿主级设置:浮层呼出热键,形如 Ctrl+Alt+Space。</summary>
+    /// <summary>宿主级设置:浮层呼出热键,形如 Alt+Space。</summary>
     public string? OverlayHotkey { get => GetString("overlayHotkey"); set => SetString("overlayHotkey", value); }
 
     /// <summary>读取工具模块设置节:无该节、节类型不匹配或反序列化失败时返回 null(损坏的模块节不阻塞启动)。</summary>
