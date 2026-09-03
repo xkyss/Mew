@@ -21,7 +21,7 @@ public class TrayIconMenuTests
     }
 
     [Fact]
-    public void Dispatch_打开工作台_仅调打开动作()
+    public void Dispatch_打开扩展主机_仅调打开动作()
     {
         var calls = new List<string>();
         var ok = TrayIcon.TryDispatchMenu(TrayIcon.MenuOpenWorkspace,
@@ -32,7 +32,7 @@ public class TrayIconMenuTests
     }
 
     [Fact]
-    public void Dispatch_重启工作台_仅调重启动作()
+    public void Dispatch_重启扩展主机_仅调重启动作()
     {
         var calls = new List<string>();
         var ok = TrayIcon.TryDispatchMenu(TrayIcon.MenuRestartWorkspace,

@@ -30,9 +30,9 @@ dotnet run --project src/Mew.Host/Mew.Host.csproj
 
 - 首启停留在宿主窗口（托盘与呼出浮层常驻中，五区未启动），不自动隐藏
 - 显示主窗口与托盘左键只显示宿主，不顺手拉起五区
-- 仅经宿主窗口“打开扩展主机”按钮或托盘右键“打开工作台”手动拉起
+- 仅经宿主窗口“打开扩展主机”按钮或托盘右键“打开扩展主机”手动拉起
 - 开发期 fallback 路径：`Host` 会到 `.build/Mew.PluginHost/bin/Debug/net10.0-windows/Mew.PluginHost.exe`
-- 托盘常驻：关闭主窗口仅隐藏，托盘 `显示主窗口` / `打开工作台` / `重启工作台` / `退出`，浮层 `Ctrl+Alt+Space`
+- 托盘常驻：关闭主窗口仅隐藏，托盘 `显示主窗口` / `打开扩展主机` / `重启扩展主机` / `退出`，浮层 `Ctrl+Alt+Space`
 - 退出宿主不再终止扩展主机进程；扩展主机退出后仅标记，不自动拉起
 
 单独调试扩展主机：
@@ -137,7 +137,7 @@ dotnet test Mew.slnx
 
 ## 常见问题
 
-- **扩展主机未启动**：经宿主窗口“打开扩展主机”按钮或托盘右键“打开工作台”手动拉起；确认 `Mew.PluginHost.exe` 与 `Mew.Host.exe` 同目录，或已 `dotnet build` 生成 `.build` fallback；查看 `host.log`
+- **扩展主机未启动**：经宿主窗口“打开扩展主机”按钮或托盘右键“打开扩展主机”手动拉起；确认 `Mew.PluginHost.exe` 与 `Mew.Host.exe` 同目录，或已 `dotnet build` 生成 `.build` fallback；查看 `host.log`
 - **DLL 插件置灰**：仅分发了 AOT 单文件，需补 `Mew.PluginHost.exe`（JIT）
 - **清单标红**：检查 `id` 重复、`version` 非 semver、`entry.path` 与 `type` 不匹配、`protocolVersion != 1`
 - **热键注册失败**：已被其他程序占用或与已注册热键冲突，设置页会点名占用方

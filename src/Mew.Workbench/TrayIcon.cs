@@ -51,8 +51,8 @@ public sealed class TrayIcon : IDisposable
 
         _menu = CreatePopupMenu();
         AppendMenu(_menu, 0, (UIntPtr)MenuShowMain, "显示主窗口");
-        AppendMenu(_menu, 0, (UIntPtr)MenuOpenWorkspace, "打开工作台");
-        AppendMenu(_menu, 0, (UIntPtr)MenuRestartWorkspace, "重启工作台");
+        AppendMenu(_menu, 0, (UIntPtr)MenuOpenWorkspace, "打开扩展主机");
+        AppendMenu(_menu, 0, (UIntPtr)MenuRestartWorkspace, "重启扩展主机");
         AppendMenu(_menu, 0, (UIntPtr)MenuQuit, "退出");
     }
 
