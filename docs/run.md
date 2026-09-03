@@ -1,6 +1,6 @@
 # 运行与发布
 
-> 对应版本：`v0.2.1` 三层插件宿主（`docs/adr/000201-01-three-layer-plugin-host.md`）
+> 对应版本：`v0.2.2` 宿主独立启动（`docs/adr/000202-01-host-independent-startup.md`）
 
 ## 先决条件
 
@@ -26,11 +26,14 @@ dotnet build Mew.slnx
 dotnet run --project src/Mew.Host/Mew.Host.csproj
 ```
 
-`Mew.Host` 启动后自动按需拉起 `Mew.PluginHost`：
+`Mew.Host` 启动后不再自动拉起 `Mew.PluginHost`（独立启动，常驻干净）：
 
-- 首启即拉起（保证 Launcher 可见）
+- 首启停留在宿主窗口（托盘与呼出浮层常驻中，五区未启动），不自动隐藏
+- 显示主窗口与托盘左键只显示宿主，不顺手拉起五区
+- 仅经宿主窗口“打开扩展主机”按钮或托盘右键“打开工作台”手动拉起
 - 开发期 fallback 路径：`Host` 会到 `.build/Mew.PluginHost/bin/Debug/net10.0-windows/Mew.PluginHost.exe`
-- 托盘常驻：关闭主窗口仅隐藏，托盘 `显示` / `退出`，浮层 `Ctrl+Alt+Space`
+- 托盘常驻：关闭主窗口仅隐藏，托盘 `显示主窗口` / `打开工作台` / `重启工作台` / `退出`，浮层 `Ctrl+Alt+Space`
+- 退出宿主不再终止扩展主机进程；扩展主机退出后仅标记，不自动拉起
 
 单独调试扩展主机：
 

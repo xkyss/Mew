@@ -90,12 +90,9 @@ internal sealed class MewHost
             ApplyWindowIcon(window);
             if (!overlayHotkeyRegistered)
                 window.ShowToast($"⚠ 呼出热键 {_overlayHotkey} 注册失败(可能已被其他程序占用)");
-            _tray = new TrayIcon(window.Handle, ShowMain, Quit);
+            _tray = new TrayIcon(window.Handle, ShowMain, Quit, EnsurePluginHostRunning, RestartPluginHost);
             _tray.Add();
-            // 按需拉起扩展主机（首启即拉起，保证 Launcher 可见），宿主窗口随后隐藏至托盘，Workbench 防守线在扩展主机窗口中展示
-            EnsurePluginHostRunning();
-            if (IsPluginHostRunning)
-                window.Hide();
+            // 独立启动：首启不拉起扩展主机，宿主窗口保持可见，仅经用户手动打开
         };
 
         window.NativeMessage += args =>
@@ -114,7 +111,6 @@ internal sealed class MewHost
         {
             window.Show(null!);
             window.Activate();
-            EnsurePluginHostRunning();
         }
 
         void Quit()
@@ -129,7 +125,7 @@ internal sealed class MewHost
     {
         return new StackPanel().Padding(24).Spacing(12).Children(
             new Label().Text("Mew Host (AOT 常驻)").FontSize(16).Bold().WithTheme((_, l) => l.Foreground(_theme.EditorArea.Foreground)),
-            new Label().Text($"版本 {AppVersion}  — 托盘与呼出浮层由宿主常驻，Workbench 由扩展主机承载。").FontSize(12).WithTheme((_, l) => l.Foreground(_theme.EditorArea.Foreground)),
+            new Label().Text($"版本 {AppVersion}  — 托盘与呼出浮层由宿主常驻，五区未启动，可手动打开扩展主机。").FontSize(12).WithTheme((_, l) => l.Foreground(_theme.EditorArea.Foreground)),
             new Button().Content(new Label().Text("打开扩展主机")).CanDrag(false).OnClick(() => EnsurePluginHostRunning()),
             new Button().Content(new Label().Text("重启扩展主机")).CanDrag(false).OnClick(() => RestartPluginHost())
         );
