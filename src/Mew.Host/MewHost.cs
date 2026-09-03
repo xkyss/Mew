@@ -17,7 +17,7 @@ namespace Mew.Host;
 /// </summary>
 internal sealed class MewHost
 {
-    private const string AppVersion = "v0.2.1";
+    private const string AppVersion = "v0.2.2";
     private const string DefaultOverlayHotkey = "Ctrl+Alt+Space";
 
     private Window _window = null!;
