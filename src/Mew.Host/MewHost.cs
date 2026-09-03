@@ -145,7 +145,12 @@ internal sealed class MewHost
             var alt = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "Mew.PluginHost", "bin", "Debug", "net10.0-windows", "Mew.PluginHost.exe");
             exe = Path.GetFullPath(alt);
         }
-        if (!File.Exists(exe)) return;
+        if (!File.Exists(exe))
+        {
+            Log($"扩展主机缺失：{exe}");
+            try { _window.ShowToast("未找到扩展主机（Mew.PluginHost.exe），请先构建整个方案"); } catch { }
+            return;
+        }
         try
         {
             var psi = new ProcessStartInfo(exe) { UseShellExecute = false };
@@ -158,7 +163,11 @@ internal sealed class MewHost
                 Log($"扩展主机已拉起 pid={proc.Id}");
             }
         }
-        catch (Exception ex) { Log($"扩展主机拉起失败：{ex.Message}"); }
+        catch (Exception ex)
+        {
+            Log($"扩展主机拉起失败：{ex.Message}");
+            try { _window.ShowToast($"扩展主机拉起失败：{ex.Message}"); } catch { }
+        }
     }
 
     private void OnPluginHostExited(object? sender, EventArgs e)
