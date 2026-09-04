@@ -76,6 +76,19 @@ public class PluginDiscoveryTests
     }
 
     [Fact]
+    public void IsExtensionHostManaged_exe行与保留id_排除_dll行纳入()
+    {
+        // 扩展主机设置→插件只列 T1/T2：exe（T3 独立进程，宿主管理）与保留容器不出现（ADR-000202/000203）
+        var exe = new PluginDescriptor(new PluginManifest { Id = "clip", DisplayName = "剪贴板", Version = "0.1.0", Entry = new PluginEntry { Type = "exe", Path = "a.exe" } }, "/x/clip/plugin.json", []);
+        var dll = new PluginDescriptor(new PluginManifest { Id = "todo", DisplayName = "待办", Version = "0.1.0", Entry = new PluginEntry { Type = "dll", Path = "b.dll" } }, "/x/todo/plugin.json", []);
+        var host = new PluginDescriptor(new PluginManifest { Id = "mew-host", DisplayName = "宿主", Version = "0.1.0", Entry = new PluginEntry { Type = "exe", Path = "h.exe" } }, "/x/host/plugin.json", []);
+
+        Assert.False(PluginDiscovery.IsExtensionHostManaged(exe));
+        Assert.False(PluginDiscovery.IsExtensionHostManaged(host));
+        Assert.True(PluginDiscovery.IsExtensionHostManaged(dll));
+    }
+
+    [Fact]
     public void Discover_扫描两目录_发现合法清单()
     {
         var userDir = Path.Combine(Path.GetTempPath(), "mew-test-disc-" + Guid.NewGuid().ToString("N"));

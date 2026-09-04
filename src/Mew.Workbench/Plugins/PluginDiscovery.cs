@@ -113,6 +113,14 @@ public sealed class PluginDiscovery
         string.Equals(id, "mew-host", StringComparison.OrdinalIgnoreCase)
         || string.Equals(id, "mew-plugin-host", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// 是否属扩展主机（T1/T2）管辖：排除保留容器与 exe 行（T3 独立进程由宿主管理，ADR-000202/000203）。
+    /// 扩展主机设置→插件列表以此过滤；宿主侧反之只列 exe 行。
+    /// </summary>
+    public static bool IsExtensionHostManaged(PluginDescriptor desc) =>
+        !IsReservedHostId(desc.Id)
+        && !string.Equals(desc.Manifest.Entry.Type, "exe", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>结合启用态，返回最终可加载集合（有效且已启用）。</summary>
     public static IReadOnlyList<PluginDescriptor> FilterLoadable(IReadOnlyList<PluginDescriptor> discovered, PluginEnableStore enableStore)
     {

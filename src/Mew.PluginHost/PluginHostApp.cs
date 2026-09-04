@@ -546,7 +546,7 @@ internal sealed class PluginHostApp
         _pluginPanel.Clear();
         _pluginPanel.Add(new Label().Text("插件").FontSize(20).Bold().WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground)));
         BuildPluginDirsSection(theme);
-        var hasDll = _discoveredPlugins.Any(d => string.Equals(d.Manifest.Entry.Type, "dll", StringComparison.OrdinalIgnoreCase));
+        var hasDll = _discoveredPlugins.Any(PluginDiscovery.IsExtensionHostManaged);
         if (hasDll)
         {
             _pluginPanel.Add(new StackPanel().Orientation(Orientation.Horizontal).Spacing(8).Children(
@@ -555,36 +555,36 @@ internal sealed class PluginHostApp
             ));
         }
         const bool isJitAvailable = true; // 扩展主机本身为 JIT，DLL 可加载
-        if (_discoveredPlugins.Count == 0)
+        // 扩展主机只管 T1/T2（dll 与非进程型插件）：exe 行（T3 独立进程）归宿主管理，此处不出现
+        var managed = _discoveredPlugins.Where(PluginDiscovery.IsExtensionHostManaged).ToList();
+        if (managed.Count == 0)
         {
             _pluginPanel.Add(new Label().Text("未发现插件（将 plugin.json 置于 %APPDATA%/Mew/Plugins/<id>/）").FontSize(12).WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground)));
             return;
         }
+        var loadedIds = _dllLoader?.Loaded.Select(x => x.Descriptor.Id).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
         // 特殊容器永不进列表：宿主保留身份在此过滤
-        foreach (var desc in _discoveredPlugins.Where(d => !PluginDiscovery.IsReservedHostId(d.Id)))
+        foreach (var desc in managed)
         {
             var health = desc.Health(isJitAvailable);
             var enabled = _pluginEnables.IsEnabled(desc.Id);
-            var healthText = health switch
-            {
-                PluginHealth.Healthy => enabled ? "已启用" : "已禁用",
-                PluginHealth.InvalidManifest => "清单错误",
-                PluginHealth.DuplicateId => "ID 重复",
-                PluginHealth.NeedsJit => "需 JIT 扩展主机",
-                _ => health.ToString()
-            };
-            var title = new Label().Text($"{desc.Manifest.DisplayName} ({desc.Id}) v{desc.Manifest.Version}").WithTheme((_, l) => l.Foreground(health == PluginHealth.InvalidManifest || health == PluginHealth.DuplicateId ? ShellIcons.HotkeyWarning : theme.EditorArea.Foreground));
-            var healthLabel = new Label().Text(healthText).FontSize(11).WithTheme((_, l) => l.Foreground(health == PluginHealth.Healthy ? theme.EditorArea.Foreground : ShellIcons.HotkeyWarning));
-            var toggle = new Button().Content(new Label().Text(enabled ? "禁用" : "启用")).CanDrag(false).OnClick(() => { _pluginEnables.SetEnabled(desc.Id, !enabled); _pluginEnables.Save(); RefreshPluginPanel(); });
-            if (health == PluginHealth.InvalidManifest || health == PluginHealth.DuplicateId)
-                toggle.Content(new Label().Text(healthText));
+            // 行状态纯逻辑推导（ADR-000203）：策略 × 健康态 ×（T2 无崩溃语义）× 本会话是否仍加载
+            var row = PluginRowState.Derive(enabled, health, crashed: false, stillLoaded: loadedIds.Contains(desc.Id));
+            var titleColor = row.IsWarning ? ShellIcons.HotkeyWarning : theme.EditorArea.Foreground;
+            var title = new Label().Text($"{desc.Manifest.DisplayName} ({desc.Id}) v{desc.Manifest.Version}").WithTheme((_, l) => l.Foreground(titleColor));
+            var healthLabel = new Label().Text(row.StatusWord).FontSize(11).WithTheme((_, l) => l.Foreground(row.IsWarning ? ShellIcons.HotkeyWarning : theme.EditorArea.Foreground));
+            // 单动作：健康行启用/禁用开关；清单错误/ID 重复/需 JIT 不提供误导性开关
+            var actionButton = new Button().Content(new Label().Text(row.ActionLabel)).CanDrag(false)
+                .OnClick(() => { _pluginEnables.SetEnabled(desc.Id, !enabled); _pluginEnables.Save(); RefreshPluginPanel(); });
+            if (row.Action == PluginRowAction.None)
+                actionButton.Content(new Label().Text("—"));
+            var children = new List<Element> { title, healthLabel };
+            if (row.Hint is not null)
+                children.Add(new Label().Text(row.Hint).FontSize(11).WithTheme((_, l) => l.Foreground(ShellIcons.HotkeyWarning)));
             if (desc.ValidationErrors.Count > 0)
-            {
-                var err = new Label().Text(string.Join("; ", desc.ValidationErrors)).FontSize(11).WithTheme((_, l) => l.Foreground(ShellIcons.HotkeyWarning));
-                _pluginPanel.Add(new StackPanel().Spacing(2).Children(title, healthLabel, err, toggle));
-            }
-            else
-                _pluginPanel.Add(new StackPanel().Spacing(2).Children(title, healthLabel, toggle));
+                children.Add(new Label().Text(string.Join("; ", desc.ValidationErrors)).FontSize(11).WithTheme((_, l) => l.Foreground(ShellIcons.HotkeyWarning)));
+            children.Add(actionButton);
+            _pluginPanel.Add(new StackPanel().Spacing(2).Children(children.ToArray()));
         }
     }
 }
