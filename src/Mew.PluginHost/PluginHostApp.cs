@@ -359,3 +359,96 @@ internal sealed class PluginHostApp
         }
     }
 }
+        BuildPluginDirsSection(theme);
+    private string DefaultSeedDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Mew", "Plugins");
+    private string InstallPluginsDir => Path.Combine(AppContext.BaseDirectory, "Plugins");
+
+    /// <summary>可编辑的目录列表：未配置时以用户目录为种子；第一项为默认目录。</summary>
+    private List<string> EditablePluginDirs() => new(_settings.PluginDirs is { Count: > 0 } ? _settings.PluginDirs : [DefaultSeedDir]);
+
+    private void SavePluginDirs(List<string> dirs)
+    {
+        _settings.PluginDirs = dirs;
+        _settings.Save();
+        RefreshPluginPanel();
+    }
+
+    private void BuildPluginDirsSection(WorkbenchThemeContext theme)
+    {
+        if (_pluginPanel is null) return;
+        _pluginPanel.Add(new Label().Text("插件目录").FontSize(14).Bold().WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground)));
+        var dirs = EditablePluginDirs();
+        for (var i = 0; i < dirs.Count; i++)
+            AddEditableDirRow(dirs, i);
+        AddLockedDirRow(InstallPluginsDir, "安装目录（随包内置）");
+
+        var feedback = new Label().Text("").FontSize(11).WithTheme((_, l) => l.Foreground(ShellIcons.HotkeyWarning));
+        var input = new TextBox { Placeholder = @"新增目录，如 D:\dev-plugins", CanDrag = false }.Width(380);
+        var addButton = new Button().Content(new Label().Text("添加")).CanDrag(false).OnClick(() =>
+        {
+            var dir = input.Text?.Trim();
+            if (string.IsNullOrEmpty(dir))
+            {
+                feedback.Text = "请输入目录路径";
+                return;
+            }
+            var current = EditablePluginDirs();
+            if (current.Contains(dir, StringComparer.OrdinalIgnoreCase)
+                || string.Equals(dir, InstallPluginsDir, StringComparison.OrdinalIgnoreCase))
+            {
+                feedback.Text = "目录已在列表中";
+                return;
+            }
+            current.Add(dir);
+            SavePluginDirs(current);
+        });
+        _pluginPanel.Add(new StackPanel().Orientation(Orientation.Horizontal).Spacing(8).Children(input, addButton));
+        _pluginPanel.Add(feedback);
+        _pluginPanel.Add(new Label().Text("至少保留一项，第一项为默认目录，重复 id 以靠前的目录为准；增减后需重启宿主（刷新快照）与扩展主机（加载 DLL）；不存在的目录会被忽略").FontSize(11).WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground)));
+
+        void AddEditableDirRow(List<string> list, int index)
+        {
+            var dir = list[index];
+            var exists = Directory.Exists(dir);
+            var tag = index == 0 ? "默认" : $"#{index + 1}";
+            var pathLabel = new Label().Text(dir).FontSize(12).WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground));
+            var tagLabel = new Label().Text(exists ? tag : $"{tag}（不存在，将被忽略）").FontSize(11)
+                .WithTheme((_, l) => l.Foreground(exists ? theme.EditorArea.Foreground : ShellIcons.HotkeyWarning));
+            var row = new StackPanel().Spacing(2).Children(pathLabel, tagLabel);
+            var buttons = new StackPanel().Orientation(Orientation.Horizontal).Spacing(8).Children(row);
+            if (index > 0)
+            {
+                var defaultButton = new Button().Content(new Label().Text("设为默认")).CanDrag(false).OnClick(() =>
+                {
+                    var current = EditablePluginDirs();
+                    var target = current.FirstOrDefault(d => string.Equals(d, dir, StringComparison.OrdinalIgnoreCase));
+                    if (target is null) return;
+                    current.Remove(target);
+                    current.Insert(0, target);
+                    SavePluginDirs(current);
+                });
+                buttons.Add(defaultButton);
+            }
+            if (list.Count > 1)
+            {
+                var removeButton = new Button().Content(new Label().Text("删除")).CanDrag(false).OnClick(() =>
+                {
+                    var current = EditablePluginDirs();
+                    current.RemoveAll(d => string.Equals(d, dir, StringComparison.OrdinalIgnoreCase));
+                    SavePluginDirs(current);
+                });
+                buttons.Add(removeButton);
+            }
+            _pluginPanel!.Add(buttons);
+        }
+
+        void AddLockedDirRow(string dir, string tag)
+        {
+            var exists = Directory.Exists(dir);
+            var pathLabel = new Label().Text(dir).FontSize(12).WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground));
+            var tagLabel = new Label().Text(exists ? tag : $"{tag}（不存在，将被忽略）").FontSize(11)
+                .WithTheme((_, l) => l.Foreground(exists ? theme.EditorArea.Foreground : ShellIcons.HotkeyWarning));
+            _pluginPanel!.Add(new StackPanel().Spacing(2).Children(pathLabel, tagLabel));
+        }
+    }
+

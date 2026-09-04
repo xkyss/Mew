@@ -222,6 +222,79 @@ public class PluginDiscoveryTests
         Assert.Equal("exe-ok", loadable[0].Id);
     }
 
+    [Fact]
+    public void Discover_额外目录_单个插件目录直接解析_根目录扫描一层()
+    {
+        var userDir = Path.Combine(Path.GetTempPath(), "mew-test-extra-" + Guid.NewGuid().ToString("N"));
+        var installDir = Path.Combine(Path.GetTempPath(), "mew-test-extra-i-" + Guid.NewGuid().ToString("N"));
+        // 单个插件目录：本身即含 plugin.json（如 Mxd 构建输出）
+        var singleDir = Path.Combine(Path.GetTempPath(), "mew-test-extra-s-" + Guid.NewGuid().ToString("N"));
+        // 根目录：含多个 <id>/ 子目录
+        var rootDir = Path.Combine(Path.GetTempPath(), "mew-test-extra-r-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(singleDir);
+        Directory.CreateDirectory(Path.Combine(rootDir, "gamma"));
+        try
+        {
+            WriteManifest(Path.Combine(singleDir, "plugin.json"), "single", "Single", "0.1.0", "dll", "S.dll");
+            WriteManifest(Path.Combine(rootDir, "gamma", "plugin.json"), "gamma", "Gamma", "0.1.0", "exe", "g.exe");
+
+            var discovery = new PluginDiscovery();
+            var result = discovery.Discover([userDir, installDir, singleDir, rootDir]);
+
+            Assert.Equal(2, result.Count);
+            Assert.Contains(result, r => r.Id == "single" && r.IsValid);
+            Assert.Contains(result, r => r.Id == "gamma" && r.IsValid);
+        }
+        finally
+        {
+            if (Directory.Exists(singleDir)) Directory.Delete(singleDir, true);
+            if (Directory.Exists(rootDir)) Directory.Delete(rootDir, true);
+        }
+    }
+
+    [Fact]
+    public void GetExtraPluginDirs_未设置返回空_设置后按分隔符切分()
+    {
+        var saved = Environment.GetEnvironmentVariable(PluginDiscovery.ExtraDirsEnvVar);
+        try
+        {
+            Environment.SetEnvironmentVariable(PluginDiscovery.ExtraDirsEnvVar, null);
+            Assert.Empty(PluginDiscovery.GetExtraPluginDirs());
+
+            var sep = Path.PathSeparator.ToString();
+            Environment.SetEnvironmentVariable(PluginDiscovery.ExtraDirsEnvVar, $"C:{sep}D:");
+            var dirs = PluginDiscovery.GetExtraPluginDirs();
+            Assert.Equal(2, dirs.Count);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(PluginDiscovery.ExtraDirsEnvVar, saved);
+        }
+    }
+
+    [Fact]
+    public void ResolvePluginRoots_环境变量在前_空配置回退用户目录_安装目录恒末尾()
+    {
+        var saved = Environment.GetEnvironmentVariable(PluginDiscovery.ExtraDirsEnvVar);
+        try
+        {
+            var sep = Path.PathSeparator.ToString();
+            Environment.SetEnvironmentVariable(PluginDiscovery.ExtraDirsEnvVar, $"/tmp/env{sep}/tmp/cfg");
+            // 空配置：用户目录为种子，安装目录恒为末尾
+            Assert.Equal(["/tmp/env", "/tmp/cfg", "/user", "/install"],
+                PluginDiscovery.ResolvePluginRoots([], "/user", "/install"));
+            Assert.Equal(["/tmp/env", "/tmp/cfg", "/user", "/install"],
+                PluginDiscovery.ResolvePluginRoots(null, "/user", "/install"));
+            // 非空配置：用户目录不自动加入，去重大小写不敏感
+            Assert.Equal(["/tmp/env", "/tmp/cfg", "/tmp/A", "/tmp/b", "/install"],
+                PluginDiscovery.ResolvePluginRoots(["/tmp/A", "", "/tmp/b", "/tmp/a"], "/user", "/install"));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(PluginDiscovery.ExtraDirsEnvVar, saved);
+        }
+    }
+
     private static void WriteManifest(string path, string id, string display, string version, string type, string entryPath)
     {
         var m = new PluginManifest

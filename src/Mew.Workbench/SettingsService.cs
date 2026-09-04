@@ -30,6 +30,13 @@ public sealed class SettingsService : ISettingsService
     /// <summary>宿主级设置:浮层呼出热键,形如 Alt+Space。</summary>
     public string? OverlayHotkey { get => GetString("overlayHotkey"); set => SetString("overlayHotkey", value); }
 
+    /// <summary>宿主级设置:呼出热键是否启用；缺省（未配置）视为启用。</summary>
+    public bool OverlayHotkeyEnabled { get => GetBool("overlayHotkeyEnabled", true); set => SetBool("overlayHotkeyEnabled", value); }
+
+    /// <summary>宿主级设置:插件目录列表（设置→插件→插件目录维护的完整列表，第一项为默认目录；
+    /// 为空或缺省时回退到用户目录；安装目录由宿主恒追加）。与 `MEW_PLUGINS_EXTRA` 合并生效。</summary>
+    public List<string>? PluginDirs { get => GetStringArray("pluginDirs"); set => SetStringArray("pluginDirs", value); }
+
     /// <summary>读取工具模块设置节:无该节、节类型不匹配或反序列化失败时返回 null(损坏的模块节不阻塞启动)。</summary>
     public T? ReadSection<T>(string moduleId, JsonTypeInfo<T> typeInfo) where T : class
     {
@@ -127,6 +134,59 @@ public sealed class SettingsService : ISettingsService
         else
         {
             _root[key] = value;
+        }
+    }
+
+    private bool GetBool(string key, bool defaultValue)
+    {
+        if (!_root.TryGetPropertyValue(key, out var node) || node is null)
+        {
+            return defaultValue;
+        }
+
+        try
+        {
+            return node.GetValue<bool>();
+        }
+        catch (InvalidOperationException)
+        {
+            return defaultValue; // 类型不符时回退缺省
+        }
+    }
+
+    private void SetBool(string key, bool value)
+    {
+        _root[key] = value;
+    }
+
+    private List<string>? GetStringArray(string key)
+    {
+        if (!_root.TryGetPropertyValue(key, out var node) || node is not JsonArray arr)
+        {
+            return null;
+        }
+
+        try
+        {
+            return arr.Where(e => e is not null).Select(e => e!.GetValue<string>()).ToList();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or FormatException)
+        {
+            return null; // 数组元素类型不符时静默回退 null
+        }
+    }
+
+    private void SetStringArray(string key, List<string>? value)
+    {
+        if (value is null)
+        {
+            _root.Remove(key);
+        }
+        else
+        {
+            var arr = new JsonArray();
+            foreach (var s in value) arr.Add(s);
+            _root[key] = arr;
         }
     }
 }

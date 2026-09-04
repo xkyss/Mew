@@ -64,6 +64,27 @@ dotnet publish src/Mew.PluginHost -c Release -r win-x64 -o publish
 <exe-dir>\Plugins\<id>\plugin.json       # 安装目录
 ```
 
+额外插件目录（开发期免复制联调）：两种方式，合并生效。最终扫描顺序 = 环境变量 → 配置列表 → 安装目录
+（重复 `id` 以靠前的目录为准）：
+
+1. **设置页**：`设置 → 插件 → 插件目录`，完整可配置的目录列表，第一项为默认目录：每行可 `设为默认`/
+   `删除`，底部输入框可添加（单插件目录或 `<id>/` 根目录均可）。落盘于 `settings.json` 根节
+   `pluginDirs`；列表为空/缺省时回退到用户目录（`%APPDATA%\Mew\Plugins`）；`安装目录`
+   （`<exe-dir>\Plugins`）随包内置、恒为末尾。目录增减需重启宿主（刷新快照）与扩展主机（加载 DLL）
+   生效，不存在的目录会被忽略并标出。
+2. **环境变量** `MEW_PLUGINS_EXTRA`（多目录用 `;` Windows / `:` Linux 分隔，`Path.PathSeparator`），
+   宿主启动时并入扫描并记入 `host.log`。额外目录支持两种形态：
+
+```powershell
+# 直接指向单个插件目录（本身含 plugin.json，如 Mxd 构建输出）
+$env:MEW_PLUGINS_EXTRA="D:\code\Mxd\.build\Mxd.UI\bin\Debug\net10.0-windows"
+# 或指向含多个 <id>/ 子目录的根目录
+$env:MEW_PLUGINS_EXTRA="D:\dev-plugins"
+```
+
+指向构建输出时：改代码后只需 `dotnet build` + 重启扩展主机（T2 的 ALC 限制），无需复制、无需重启宿主
+（首次指向新目录需重启宿主以刷新快照）。
+
 `plugin.json` 最小示例（`T3` 独立进程）：
 
 ```json

@@ -124,6 +124,55 @@ public class SettingsServiceTests : IDisposable
     }
 
     [Fact]
+    public void PluginDirs_读写往返_置空移除键()
+    {
+        var service = new SettingsService(TempFile("settings.json"));
+        Assert.Null(service.PluginDirs);
+
+        service.PluginDirs = new List<string> { @"D:\dev-plugins", @"E:\mxd-out" };
+        service.Save();
+
+        var loaded = new SettingsService(TempFile("settings.json"));
+        loaded.Load();
+        Assert.Equal(new List<string> { @"D:\dev-plugins", @"E:\mxd-out" }, loaded.PluginDirs);
+
+        loaded.PluginDirs = null;
+        loaded.Save();
+        var reloaded = new SettingsService(TempFile("settings.json"));
+        reloaded.Load();
+        Assert.Null(reloaded.PluginDirs);
+    }
+
+    [Fact]
+    public void PluginDirs_类型不符_静默回退null_不抛()
+    {
+        File.WriteAllText(TempFile("settings.json"), """{ "pluginDirs": ["ok", 123] }""");
+
+        var loaded = new SettingsService(TempFile("settings.json"));
+        loaded.Load();
+
+        Assert.Null(loaded.PluginDirs);
+    }
+
+    [Fact]
+    public void OverlayHotkeyEnabled_缺省启用_读写往返_类型不符回退()
+    {
+        var service = new SettingsService(TempFile("settings.json"));
+        Assert.True(service.OverlayHotkeyEnabled); // 缺省启用
+
+        service.OverlayHotkeyEnabled = false;
+        service.Save();
+        var loaded = new SettingsService(TempFile("settings.json"));
+        loaded.Load();
+        Assert.False(loaded.OverlayHotkeyEnabled);
+
+        File.WriteAllText(TempFile("settings.json"), """{ "overlayHotkeyEnabled": "x" }""");
+        var broken = new SettingsService(TempFile("settings.json"));
+        broken.Load();
+        Assert.True(broken.OverlayHotkeyEnabled);
+    }
+
+    [Fact]
     public void Load_模块节类型不符_ReadSection回退null_不抛()
     {
         // 评审修复:模块节字段类型不符(itemsViewMode 为数字)时 ReadSection 静默回退 null

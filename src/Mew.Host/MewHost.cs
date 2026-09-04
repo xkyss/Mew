@@ -75,7 +75,9 @@ internal sealed class MewHost
         var discovery = new PluginDiscovery();
         var userPluginsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Mew", "Plugins");
         var installPluginsDir = Path.Combine(AppContext.BaseDirectory, "Plugins");
-        var full = discovery.Discover(userPluginsDir, installPluginsDir);
+        var roots = PluginDiscovery.ResolvePluginRoots(settings.PluginDirs, userPluginsDir, installPluginsDir);
+        Log($"插件目录：{string.Join("；", roots)}");
+        var full = discovery.Discover(roots);
         // 宿主侧只消费独立进程插件（exe）；运行期 DLL 由扩展主机按同一来源代管，宿主侧置灰
         _discoveredPlugins = PluginDiscovery.FilterExeLoadable(full, _pluginEnables);
         // 全量名单写入快照：扩展主机按单加载，不再自扫（快照缺失回退本地扫描）
