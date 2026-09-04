@@ -102,6 +102,8 @@ internal sealed class MewHost
                 : "呼出热键已禁用（设置→热键可重新启用）");
             _tray = new TrayIcon(window.Handle, Quit, EnsurePluginHostRunning, RestartPluginHost, () => _overlayWindow.ToggleOverlay());
             _tray.Add();
+            // 宿主启动即拉起主界面（ADR-000202 的常驻干净让位给开箱即用；崩溃仍不自愈，需手动重启）
+            EnsurePluginHostRunning();
             if (!overlayHotkeyRegistered)
             {
                 // 告警路径：先恢复不透明再亮出（提示在隐藏窗口上不可见）
