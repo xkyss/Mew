@@ -43,12 +43,25 @@ public class TrayIconMenuTests
     }
 
     [Fact]
+    public void Dispatch_插件管理_仅调插件管理动作()
+    {
+        var calls = new List<string>();
+        var ok = TrayIcon.TryDispatchMenu(TrayIcon.MenuPluginManager,
+            () => calls.Add("quit"),
+            () => calls.Add("open"), () => calls.Add("restart"), () => calls.Add("plugin-manager"));
+        Assert.True(ok);
+        Assert.Equal(["plugin-manager"], calls);
+    }
+
+    [Fact]
     public void Dispatch_动作为空_跳过不抛_仍返回真()
     {
         var calls = new List<string>();
         Assert.True(TrayIcon.TryDispatchMenu(TrayIcon.MenuOpenWorkspace,
             () => calls.Add("quit"), null, null));
         Assert.True(TrayIcon.TryDispatchMenu(TrayIcon.MenuRestartWorkspace,
+            () => calls.Add("quit"), null, null));
+        Assert.True(TrayIcon.TryDispatchMenu(TrayIcon.MenuPluginManager,
             () => calls.Add("quit"), null, null));
         Assert.Empty(calls);
     }

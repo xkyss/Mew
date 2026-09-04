@@ -16,22 +16,25 @@ public sealed class TrayIcon : IDisposable
     public const int MenuQuit = 1;
     public const int MenuOpenWorkspace = 2;
     public const int MenuRestartWorkspace = 3;
+    public const int MenuPluginManager = 4;
 
     private readonly IntPtr _windowHandle;
     private readonly Action _quit;
     private readonly Action? _openWorkspace;
     private readonly Action? _restartWorkspace;
+    private readonly Action? _pluginManager;
     private readonly Action? _leftClick;
     private readonly IntPtr _menu;
     private readonly IntPtr _icon;
     private NotifyIconData _nid;
 
-    public TrayIcon(IntPtr windowHandle, Action quit, Action? openWorkspace = null, Action? restartWorkspace = null, Action? leftClick = null)
+    public TrayIcon(IntPtr windowHandle, Action quit, Action? openWorkspace = null, Action? restartWorkspace = null, Action? pluginManager = null, Action? leftClick = null)
     {
         _windowHandle = windowHandle;
         _quit = quit;
         _openWorkspace = openWorkspace;
         _restartWorkspace = restartWorkspace;
+        _pluginManager = pluginManager;
         _leftClick = leftClick;
 
         using var sourceIcon = Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
@@ -51,6 +54,7 @@ public sealed class TrayIcon : IDisposable
         _menu = CreatePopupMenu();
         AppendMenu(_menu, 0, (UIntPtr)MenuOpenWorkspace, "打开主界面");
         AppendMenu(_menu, 0, (UIntPtr)MenuRestartWorkspace, "重启主界面");
+        AppendMenu(_menu, 0, (UIntPtr)MenuPluginManager, "插件管理");
         AppendMenu(_menu, 0, (UIntPtr)MenuQuit, "退出");
     }
 
@@ -92,10 +96,10 @@ public sealed class TrayIcon : IDisposable
     }
 
     /// <summary>托盘菜单分发（纯逻辑，可单测）：左键与菜单项只调对应动作，不附带拉起等副作用。</summary>
-    public void HandleMenuCommand(int command) => TryDispatchMenu(command, _quit, _openWorkspace, _restartWorkspace);
+    public void HandleMenuCommand(int command) => TryDispatchMenu(command, _quit, _openWorkspace, _restartWorkspace, _pluginManager);
 
     /// <summary>菜单分发表：未知 id 返回 false，已知 id 执行对应动作（动作为空时跳过）。</summary>
-    public static bool TryDispatchMenu(int command, Action quit, Action? openWorkspace, Action? restartWorkspace)
+    public static bool TryDispatchMenu(int command, Action quit, Action? openWorkspace, Action? restartWorkspace, Action? pluginManager = null)
     {
         switch (command)
         {
@@ -104,6 +108,9 @@ public sealed class TrayIcon : IDisposable
                 return true;
             case MenuRestartWorkspace:
                 restartWorkspace?.Invoke();
+                return true;
+            case MenuPluginManager:
+                pluginManager?.Invoke();
                 return true;
             case MenuQuit:
                 quit();
