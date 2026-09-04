@@ -119,9 +119,11 @@ public class PluginDiscoveryTests
             var result = discovery.Discover(userDir, installDir);
 
             Assert.Equal(3, result.Count);
-            var firstDup = result.First(r => r.ManifestPath.Contains("dup-a"));
-            var secondDup = result.First(r => r.ManifestPath.Contains("dup-b"));
-            var bad = result.First(r => r.ManifestPath.Contains("bad"));
+            // 按目录名精确匹配：全路径含 Guid（mew-test-dup-<guid>），Contains 会误命中
+            static string DirName(PluginDescriptor r) => Path.GetFileName(Path.GetDirectoryName(r.ManifestPath))!;
+            var firstDup = result.First(r => DirName(r) == "dup-a");
+            var secondDup = result.First(r => DirName(r) == "dup-b");
+            var bad = result.First(r => DirName(r) == "bad");
 
             Assert.True(firstDup.IsValid);
             Assert.True(secondDup.IsDuplicate);
