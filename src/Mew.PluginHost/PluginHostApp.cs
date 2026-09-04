@@ -42,6 +42,9 @@ internal sealed class PluginHostApp
     private PluginEnableStore _pluginEnables = null!;
     private IReadOnlyList<PluginDescriptor> _discoveredPlugins = [];
     private StackPanel? _pluginPanel;
+    private StackPanel? _hotkeyPanel;
+    private bool _capturingHotkey;
+    private string _hotkeyNotice = "";
     private IpcClient? _ipcClient;
     private PluginDllLoader? _dllLoader;
     private readonly List<IpcClient> _dllIpcClients = [];
@@ -88,8 +91,9 @@ internal sealed class PluginHostApp
 
         workbench.Theme(tc => tc.SetMode(LoadThemeMode()).SetAccent(Accent.Blue));
 
-        // 宿主设置节：插件列表（发现结果）先于模块节注册，保证顺序 外观/插件/模块节
+        // 宿主设置节：插件列表（发现结果）先于模块节注册，保证顺序 外观/插件/热键/模块节
         settingsSections.Add("plugins", "插件", BuildPluginPanel);
+        settingsSections.Add("hotkeys", "热键", BuildHotkeyPanel);
 
         // 组合根：编译期模块（T1）
         try
@@ -150,7 +154,7 @@ internal sealed class PluginHostApp
         _titleThemeButton = TitleBarBuilder.BuildTitleBar(window, Quit, OpenSettings, CycleTheme, workbench, ShowAbout);
         UpdateThemeButton();
 
-        window.PreviewKeyDown += e => workbench.NotifyWindowKeyDown(e);
+        window.PreviewKeyDown += OnPluginHostPreviewKeyDown;
         window.Content = workbench.Build();
 
         window.Closing += e =>
@@ -358,72 +362,6 @@ internal sealed class PluginHostApp
         return panel;
     }
 
-    private sealed class IpcSearchSourceAdapter : ISearchSource
-    {
-        private readonly Func<string, IReadOnlyList<SearchResult>> _fn;
-        public IpcSearchSourceAdapter(string id, string displayName, Func<string, IReadOnlyList<SearchResult>> fn) { Id = id; DisplayName = displayName; _fn = fn; }
-        public string Id { get; }
-        public string DisplayName { get; }
-        public IReadOnlyList<SearchResult> Search(string query, int maxResults) => _fn(query).Take(maxResults).ToList();
-    }
-
-    private sealed class CapturingOverlay : Mew.Workbench.IOverlayService
-    {
-        public static readonly List<ISearchSource> Captured = [];
-        private readonly Mew.Workbench.IOverlayService _inner;
-        public CapturingOverlay(Mew.Workbench.IOverlayService inner) { _inner = inner; }
-        public void AddSearchSource(ISearchSource source) { _inner.AddSearchSource(source); Captured.Add(source); }
-    }
-
-    private void RefreshPluginPanel()
-    {
-        if (_pluginPanel is null) return;
-        var theme = _theme;
-        _pluginPanel.Clear();
-        _pluginPanel.Add(new Label().Text("插件").FontSize(20).Bold().WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground)));
-        var hasDll = _discoveredPlugins.Any(d => string.Equals(d.Manifest.Entry.Type, "dll", StringComparison.OrdinalIgnoreCase));
-        if (hasDll)
-        {
-            _pluginPanel.Add(new StackPanel().Orientation(Orientation.Horizontal).Spacing(8).Children(
-                new Label().Text("DLL 插件变更需重启扩展主机（先退出进程，再经宿主托盘手动打开）").FontSize(11).WithTheme((_, l) => l.Foreground(ShellIcons.HotkeyWarning)),
-                new Button().Content(new Label().Text("退出扩展主机进程")).CanDrag(false).OnClick(() => { _window.Close(); Environment.Exit(0); })
-            ));
-        }
-        const bool isJitAvailable = true; // 扩展主机本身为 JIT，DLL 可加载
-        if (_discoveredPlugins.Count == 0)
-        {
-            _pluginPanel.Add(new Label().Text("未发现插件（将 plugin.json 置于 %APPDATA%/Mew/Plugins/<id>/）").FontSize(12).WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground)));
-            return;
-        }
-        // 特殊容器永不进列表：宿主保留身份在此过滤
-        foreach (var desc in _discoveredPlugins.Where(d => !PluginDiscovery.IsReservedHostId(d.Id)))
-        {
-            var health = desc.Health(isJitAvailable);
-            var enabled = _pluginEnables.IsEnabled(desc.Id);
-            var healthText = health switch
-            {
-                PluginHealth.Healthy => enabled ? "已启用" : "已禁用",
-                PluginHealth.InvalidManifest => "清单错误",
-                PluginHealth.DuplicateId => "ID 重复",
-                PluginHealth.NeedsJit => "需 JIT 扩展主机",
-                _ => health.ToString()
-            };
-            var title = new Label().Text($"{desc.Manifest.DisplayName} ({desc.Id}) v{desc.Manifest.Version}").WithTheme((_, l) => l.Foreground(health == PluginHealth.InvalidManifest || health == PluginHealth.DuplicateId ? ShellIcons.HotkeyWarning : theme.EditorArea.Foreground));
-            var healthLabel = new Label().Text(healthText).FontSize(11).WithTheme((_, l) => l.Foreground(health == PluginHealth.Healthy ? theme.EditorArea.Foreground : ShellIcons.HotkeyWarning));
-            var toggle = new Button().Content(new Label().Text(enabled ? "禁用" : "启用")).CanDrag(false).OnClick(() => { _pluginEnables.SetEnabled(desc.Id, !enabled); _pluginEnables.Save(); RefreshPluginPanel(); });
-            if (health == PluginHealth.InvalidManifest || health == PluginHealth.DuplicateId)
-                toggle.Content(new Label().Text(healthText));
-            if (desc.ValidationErrors.Count > 0)
-            {
-                var err = new Label().Text(string.Join("; ", desc.ValidationErrors)).FontSize(11).WithTheme((_, l) => l.Foreground(ShellIcons.HotkeyWarning));
-                _pluginPanel.Add(new StackPanel().Spacing(2).Children(title, healthLabel, err, toggle));
-            }
-            else
-                _pluginPanel.Add(new StackPanel().Spacing(2).Children(title, healthLabel, toggle));
-        }
-    }
-}
-        BuildPluginDirsSection(theme);
     private string DefaultSeedDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Mew", "Plugins");
     private string InstallPluginsDir => Path.Combine(AppContext.BaseDirectory, "Plugins");
 
@@ -516,3 +454,173 @@ internal sealed class PluginHostApp
         }
     }
 
+    private void OnPluginHostPreviewKeyDown(KeyEventArgs e)
+    {
+        if (!_capturingHotkey)
+        {
+            _workbench.NotifyWindowKeyDown(e);
+            return;
+        }
+
+        e.Handled = true;
+        if (e.Key == Key.Escape)
+        {
+            _capturingHotkey = false;
+            _hotkeyNotice = "";
+            RefreshHotkeyPanel();
+            return;
+        }
+
+        var parts = new List<string>();
+        if (e.ControlKey) parts.Add("Ctrl");
+        if (e.AltKey) parts.Add("Alt");
+        if (e.ShiftKey) parts.Add("Shift");
+        if (e.MetaKey) parts.Add("Win");
+        var name = HotkeyKeys.NameOf(e.Key);
+        if (name.Length == 0)
+        {
+            _hotkeyNotice = "请按字母/数字/功能键组合";
+            RefreshHotkeyPanel();
+            return;
+        }
+
+        if (parts.Count == 0)
+        {
+            _hotkeyNotice = "需要至少一个修饰键";
+            RefreshHotkeyPanel();
+            return;
+        }
+
+        parts.Add(name);
+        var hotkey = string.Join("+", parts);
+        if (!HotkeyParser.TryParse(hotkey, out _, out _))
+        {
+            _hotkeyNotice = "不支持的组合";
+            RefreshHotkeyPanel();
+            return;
+        }
+
+        ApplyOverlayHotkey(hotkey, enabled: true);
+    }
+
+    private void ApplyOverlayHotkey(string? hotkey, bool enabled)
+    {
+        // 先落盘（宿主未运行时重启后生效），再尽力 IPC 实时应用
+        if (enabled && !string.IsNullOrWhiteSpace(hotkey))
+            _settings.OverlayHotkey = hotkey;
+        _settings.OverlayHotkeyEnabled = enabled;
+        _settings.Save();
+        _capturingHotkey = false;
+
+        var ack = OverlayHotkeyIpc.TrySet(hotkey, enabled, out var transportError);
+        _hotkeyNotice = ack switch
+        {
+            { Ok: true, Enabled: true } => $"已生效：{ack.Hotkey}",
+            { Ok: true } => "呼出热键已禁用（托盘仍可呼出浮层）",
+            { Error: not null } => ack.Error,
+            _ => $"宿主未连接，已保存（{transportError}），重启宿主后生效",
+        };
+        RefreshHotkeyPanel();
+    }
+
+    private UIElement BuildHotkeyPanel()
+    {
+        var panel = new StackPanel().Padding(24).Spacing(12);
+        _hotkeyPanel = panel;
+        RefreshHotkeyPanel();
+        return panel;
+    }
+
+    private void RefreshHotkeyPanel()
+    {
+        if (_hotkeyPanel is null) return;
+        var theme = _theme;
+        _hotkeyPanel.Clear();
+        _hotkeyPanel.Add(new Label().Text("呼出热键").FontSize(20).Bold().WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground)));
+
+        var enabled = _settings.OverlayHotkeyEnabled;
+        var hotkey = string.IsNullOrWhiteSpace(_settings.OverlayHotkey) ? HotkeyService.DefaultOverlayHotkey : _settings.OverlayHotkey;
+        var display = enabled ? hotkey : $"{hotkey}（已禁用）";
+        var toggle = new Button().Content(new Label().Text(enabled ? "禁用" : "启用")).CanDrag(false)
+            .OnClick(() => ApplyOverlayHotkey(enabled ? hotkey : _settings.OverlayHotkey, enabled: !enabled));
+        var change = new Button().Content(new Label().Text(_capturingHotkey ? "按组合键…（Esc 取消）" : "更改")).CanDrag(false)
+            .OnClick(() =>
+            {
+                _capturingHotkey = true;
+                _hotkeyNotice = "请直接按键…（Esc 取消）";
+                RefreshHotkeyPanel();
+            });
+        _hotkeyPanel.Add(new StackPanel().Spacing(2).Children(
+            new Label().Text(display).FontSize(14).WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground)),
+            new StackPanel().Orientation(Orientation.Horizontal).Spacing(8).Children(toggle, change)));
+        if (!string.IsNullOrEmpty(_hotkeyNotice))
+            _hotkeyPanel.Add(new Label().Text(_hotkeyNotice).FontSize(11).WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground)));
+        _hotkeyPanel.Add(new Label().Text("修改/禁用实时经 IPC 生效；宿主未运行时仅保存，重启宿主后生效").FontSize(11).WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground)));
+    }
+
+    private sealed class IpcSearchSourceAdapter : ISearchSource
+    {
+        private readonly Func<string, IReadOnlyList<SearchResult>> _fn;
+        public IpcSearchSourceAdapter(string id, string displayName, Func<string, IReadOnlyList<SearchResult>> fn) { Id = id; DisplayName = displayName; _fn = fn; }
+        public string Id { get; }
+        public string DisplayName { get; }
+        public IReadOnlyList<SearchResult> Search(string query, int maxResults) => _fn(query).Take(maxResults).ToList();
+    }
+
+    private sealed class CapturingOverlay : Mew.Workbench.IOverlayService
+    {
+        public static readonly List<ISearchSource> Captured = [];
+        private readonly Mew.Workbench.IOverlayService _inner;
+        public CapturingOverlay(Mew.Workbench.IOverlayService inner) { _inner = inner; }
+        public void AddSearchSource(ISearchSource source) { _inner.AddSearchSource(source); Captured.Add(source); }
+    }
+
+    private void RefreshPluginPanel()
+    {
+        if (_pluginPanel is null) return;
+        var theme = _theme;
+        _pluginPanel.Clear();
+        _pluginPanel.Add(new Label().Text("插件").FontSize(20).Bold().WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground)));
+        BuildPluginDirsSection(theme);
+        var hasDll = _discoveredPlugins.Any(d => string.Equals(d.Manifest.Entry.Type, "dll", StringComparison.OrdinalIgnoreCase));
+        if (hasDll)
+        {
+            _pluginPanel.Add(new StackPanel().Orientation(Orientation.Horizontal).Spacing(8).Children(
+                new Label().Text("DLL 插件变更需重启扩展主机（先退出进程，再经宿主托盘手动打开）").FontSize(11).WithTheme((_, l) => l.Foreground(ShellIcons.HotkeyWarning)),
+                new Button().Content(new Label().Text("退出扩展主机进程")).CanDrag(false).OnClick(() => { _window.Close(); Environment.Exit(0); })
+            ));
+        }
+        const bool isJitAvailable = true; // 扩展主机本身为 JIT，DLL 可加载
+        if (_discoveredPlugins.Count == 0)
+        {
+            _pluginPanel.Add(new Label().Text("未发现插件（将 plugin.json 置于 %APPDATA%/Mew/Plugins/<id>/）").FontSize(12).WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground)));
+            return;
+        }
+        // 特殊容器永不进列表：宿主保留身份在此过滤
+        foreach (var desc in _discoveredPlugins.Where(d => !PluginDiscovery.IsReservedHostId(d.Id)))
+        {
+            var health = desc.Health(isJitAvailable);
+            var enabled = _pluginEnables.IsEnabled(desc.Id);
+            var healthText = health switch
+            {
+                PluginHealth.Healthy => enabled ? "已启用" : "已禁用",
+                PluginHealth.InvalidManifest => "清单错误",
+                PluginHealth.DuplicateId => "ID 重复",
+                PluginHealth.NeedsJit => "需 JIT 扩展主机",
+                _ => health.ToString()
+            };
+            var title = new Label().Text($"{desc.Manifest.DisplayName} ({desc.Id}) v{desc.Manifest.Version}").WithTheme((_, l) => l.Foreground(health == PluginHealth.InvalidManifest || health == PluginHealth.DuplicateId ? ShellIcons.HotkeyWarning : theme.EditorArea.Foreground));
+            var healthLabel = new Label().Text(healthText).FontSize(11).WithTheme((_, l) => l.Foreground(health == PluginHealth.Healthy ? theme.EditorArea.Foreground : ShellIcons.HotkeyWarning));
+            var toggle = new Button().Content(new Label().Text(enabled ? "禁用" : "启用")).CanDrag(false).OnClick(() => { _pluginEnables.SetEnabled(desc.Id, !enabled); _pluginEnables.Save(); RefreshPluginPanel(); });
+            if (health == PluginHealth.InvalidManifest || health == PluginHealth.DuplicateId)
+                toggle.Content(new Label().Text(healthText));
+            if (desc.ValidationErrors.Count > 0)
+            {
+                var err = new Label().Text(string.Join("; ", desc.ValidationErrors)).FontSize(11).WithTheme((_, l) => l.Foreground(ShellIcons.HotkeyWarning));
+                _pluginPanel.Add(new StackPanel().Spacing(2).Children(title, healthLabel, err, toggle));
+            }
+            else
+                _pluginPanel.Add(new StackPanel().Spacing(2).Children(title, healthLabel, toggle));
+        }
+    }
+}

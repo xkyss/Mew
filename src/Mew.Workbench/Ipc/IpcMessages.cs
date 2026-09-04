@@ -62,6 +62,18 @@ public sealed record HotkeyTriggeredMessage(
     [property: JsonPropertyName("pluginId")] string PluginId
 ) : IpcMessage("hotkeyTriggered");
 
+public sealed record OverlayHotkeySetMessage(
+    [property: JsonPropertyName("hotkey")] string? Hotkey,
+    [property: JsonPropertyName("enabled")] bool Enabled
+) : IpcMessage("overlayHotkeySet");
+
+public sealed record OverlayHotkeySetAckMessage(
+    [property: JsonPropertyName("ok")] bool Ok,
+    [property: JsonPropertyName("error")] string? Error,
+    [property: JsonPropertyName("hotkey")] string? Hotkey,
+    [property: JsonPropertyName("enabled")] bool Enabled
+) : IpcMessage("overlayHotkeySetAck");
+
 public sealed record SettingsChangedMessage(
     [property: JsonPropertyName("section")] string Section,
     [property: JsonPropertyName("json")] string Json

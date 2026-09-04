@@ -14,11 +14,13 @@ public sealed class IpcServer
     private readonly object _lock = new();
     private readonly HotkeyService? _hotkeys;
     private readonly SettingsService? _settings;
+    private readonly Func<string?, bool, OverlayHotkeySetAckMessage>? _overlayHotkeySetter;
 
-    public IpcServer(HotkeyService? hotkeys = null, SettingsService? settings = null)
+    public IpcServer(HotkeyService? hotkeys = null, SettingsService? settings = null, Func<string?, bool, OverlayHotkeySetAckMessage>? overlayHotkeySetter = null)
     {
         _hotkeys = hotkeys;
         _settings = settings;
+        _overlayHotkeySetter = overlayHotkeySetter;
     }
 
     public IReadOnlyList<IpcClientHandle> Clients
@@ -92,6 +94,25 @@ public sealed class IpcServer
     public void HotkeyUnregister(string hotkey) => _hotkeys?.Unregister(hotkey);
     public bool IsHotkeyRegistered(string hotkey) => _hotkeys?.IsRegistered(hotkey) ?? false;
     public string? FindHotkeyOwner(string hotkey) => _hotkeys?.FindOwner(hotkey);
+
+    private static bool IsOverlayHotkeySet(string line)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(line);
+            return doc.RootElement.TryGetProperty("type", out var type)
+                && string.Equals(type.GetString(), "overlayHotkeySet", StringComparison.Ordinal);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>呼出热键设置入口（扩展主机经 IPC 调用）：无宿主处理器时明确拒绝，不断连。</summary>
+    public OverlayHotkeySetAckMessage TrySetOverlayHotkey(string? hotkey, bool enabled) =>
+        _overlayHotkeySetter?.Invoke(hotkey, enabled)
+        ?? new OverlayHotkeySetAckMessage(false, "宿主不支持热键设置", hotkey, enabled);
 
     public event Action<string>? ClientDisconnected;
 
@@ -167,6 +188,16 @@ public sealed class IpcServer
             {
                 line = await reader.ReadLineAsync(ct);
                 if (line == null) return;
+                // 一次性请求（扩展主机热键设置等）：首行非 register 即按类型处理后关闭连接，不进入长连接流程
+                if (IsOverlayHotkeySet(line))
+                {
+                    var setMsg = JsonSerializer.Deserialize(line, IpcJsonContext.Default.OverlayHotkeySetMessage);
+                    var setAck = setMsg is null
+                        ? new OverlayHotkeySetAckMessage(false, "消息解析失败", null, false)
+                        : TrySetOverlayHotkey(setMsg.Hotkey, setMsg.Enabled);
+                    await writer.WriteLineAsync(JsonSerializer.Serialize(setAck, IpcJsonContext.Default.OverlayHotkeySetAckMessage));
+                    return;
+                }
                 var reg = JsonSerializer.Deserialize(line, IpcJsonContext.Default.RegisterMessage);
                 if (reg == null) return;
                 var ack = TryRegister(reg);

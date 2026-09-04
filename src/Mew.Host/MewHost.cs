@@ -18,7 +18,7 @@ namespace Mew.Host;
 internal sealed class MewHost
 {
     private const string AppVersion = "v0.2.2";
-    private const string DefaultOverlayHotkey = "Alt+Space";
+    private const string OverlayHotkeyLabel = "浮层呼出键";
 
     private Window _window = null!;
     private WorkbenchThemeContext _theme = null!;
@@ -29,10 +29,6 @@ internal sealed class MewHost
     private PluginEnableStore _pluginEnables = null!;
     private IReadOnlyList<PluginDescriptor> _discoveredPlugins = [];
     private string _overlayHotkey = null!;
-    private bool _capturingHotkey;
-    private Button? _hotkeyChangeButton;
-    private Label? _hotkeyDisplay;
-    private Label? _hotkeyHint;
     private Icon? _windowIcon;
     private IntPtr _windowLargeIcon;
     private IntPtr _windowSmallIcon;
@@ -55,7 +51,7 @@ internal sealed class MewHost
         _settings = settings;
         var hotkeys = new HotkeyService();
         _hotkeys = hotkeys;
-        var ipcServer = new IpcServer(hotkeys, settings);
+        var ipcServer = new IpcServer(hotkeys, settings, OnOverlayHotkeySet);
         _ipcServer = ipcServer;
         ipcServer.ClientDisconnected += id =>
         {
@@ -68,7 +64,7 @@ internal sealed class MewHost
         _overlayWindow = overlay;
 
         settings.Load();
-        _overlayHotkey = string.IsNullOrWhiteSpace(settings.OverlayHotkey) ? DefaultOverlayHotkey : settings.OverlayHotkey!;
+        _overlayHotkey = string.IsNullOrWhiteSpace(settings.OverlayHotkey) ? HotkeyService.DefaultOverlayHotkey : settings.OverlayHotkey!;
 
         _pluginEnables = new PluginEnableStore();
         _pluginEnables.Load();
@@ -90,14 +86,16 @@ internal sealed class MewHost
         // 托盘与浮层为常驻能力，必须可用
         window.Content = BuildHostPlaceholder();
         window.Closing += e => { e.Cancel = true; window.Hide(); };
-        window.PreviewKeyDown += OnHostPreviewKeyDown;
 
         window.Loaded += () =>
         {
             ApplyWindowIcon(window);
             Log($"热键句柄比对：show前={preShowHandle:X}，当前={window.Handle:X}");
-            var overlayHotkeyRegistered = _hotkeys.Register(window.Handle, _overlayHotkey, () => { Log("呼出热键触发"); _overlayWindow.ToggleOverlay(); }, "浮层呼出键");
-            Log(overlayHotkeyRegistered ? $"呼出热键已注册：{_overlayHotkey}" : $"呼出热键注册失败：{_overlayHotkey}（可能被占用或句柄无效）");
+            var overlayHotkeyRegistered = settings.OverlayHotkeyEnabled
+                && _hotkeys.Register(window.Handle, _overlayHotkey, ToggleOverlayFromHotkey, OverlayHotkeyLabel);
+            Log(settings.OverlayHotkeyEnabled
+                ? (overlayHotkeyRegistered ? $"呼出热键已注册：{_overlayHotkey}" : $"呼出热键注册失败：{_overlayHotkey}（可能被占用或句柄无效）")
+                : "呼出热键已禁用（设置→热键可重新启用）");
             _tray = new TrayIcon(window.Handle, Quit, EnsurePluginHostRunning, RestartPluginHost, () => _overlayWindow.ToggleOverlay());
             _tray.Add();
             if (!overlayHotkeyRegistered)
@@ -208,33 +206,25 @@ internal sealed class MewHost
         EnsurePluginHostRunning();
     }
 
-    private void OnHostPreviewKeyDown(KeyEventArgs e)
+
+    private void ToggleOverlayFromHotkey()
     {
-        if (!_capturingHotkey) return;
-        e.Handled = true;
-        if (e.Key == Key.Escape) { _capturingHotkey = false; _hotkeyChangeButton!.Content(new Label().Text("更改")); _hotkeyHint!.Text = ""; return; }
-        var parts = new List<string>();
-        if (e.ControlKey) parts.Add("Ctrl");
-        if (e.AltKey) parts.Add("Alt");
-        if (e.ShiftKey) parts.Add("Shift");
-        if (e.MetaKey) parts.Add("Win");
-        var name = HotkeyKeys.NameOf(e.Key);
-        if (name.Length == 0) { _hotkeyHint!.Text = "请按字母/数字/功能键组合"; return; }
-        if (parts.Count == 0) { _hotkeyHint!.Text = "需要至少一个修饰键"; return; }
-        parts.Add(name);
-        var hotkey = string.Join("+", parts);
-        if (!HotkeyParser.TryParse(hotkey, out _, out _)) { _hotkeyHint!.Text = "不支持的组合"; return; }
-        if (!string.Equals(hotkey, _overlayHotkey, StringComparison.OrdinalIgnoreCase) && _hotkeys.IsRegistered(hotkey))
-        { var o = _hotkeys.FindOwner(hotkey); _hotkeyHint!.Text = o is null ? "与已注册热键冲突" : $"与{o}的已注册热键冲突"; return; }
-        _hotkeys.Unregister(_overlayHotkey);
-        if (!_hotkeys.Register(_window.Handle, hotkey, _overlayWindow.ShowOverlay)) { _hotkeys.Register(_window.Handle, _overlayHotkey, _overlayWindow.ShowOverlay); _hotkeyHint!.Text = "注册失败"; return; }
-        _overlayHotkey = hotkey;
-        if (_hotkeyDisplay != null) _hotkeyDisplay.Text = hotkey;
-        _settings.OverlayHotkey = hotkey;
+        Log("呼出热键触发");
+        _overlayWindow.ToggleOverlay();
+    }
+
+    private OverlayHotkeySetAckMessage OnOverlayHotkeySet(string? hotkey, bool enabled)
+    {
+        var (ok, error, effectiveHotkey, effectiveEnabled) = OverlayHotkeyAdmin.Apply(
+            _hotkeys, _overlayHotkey, _window.Handle, ToggleOverlayFromHotkey, OverlayHotkeyLabel, hotkey, enabled);
+        if (!ok)
+            return new OverlayHotkeySetAckMessage(false, error, _overlayHotkey, true);
+        _overlayHotkey = effectiveHotkey;
+        _settings.OverlayHotkey = effectiveHotkey;
+        _settings.OverlayHotkeyEnabled = effectiveEnabled;
         _settings.Save();
-        _capturingHotkey = false;
-        _hotkeyChangeButton!.Content(new Label().Text("更改"));
-        _hotkeyHint!.Text = $"已生效:{hotkey}";
+        Log(effectiveEnabled ? $"呼出热键已改为：{effectiveHotkey}" : "呼出热键已禁用");
+        return new OverlayHotkeySetAckMessage(true, null, effectiveHotkey, effectiveEnabled);
     }
 
     private void ApplyWindowIcon(Window window)

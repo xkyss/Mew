@@ -146,7 +146,9 @@ $env:MEW_PLUGINS_EXTRA="D:\dev-plugins"
 
 ## 热键
 
-- 呼出浮层：`Alt+Space` 按一次呼出、再按隐藏（可在 `设置 → 热键` 捕获改绑，冲突时点名占用方）
+- 呼出浮层：`Alt+Space` 按一次呼出、再按隐藏；`设置 → 热键` 可启用/禁用/捕获改绑（`overlayHotkey` + `overlayHotkeyEnabled` 落盘，
+  经 `overlayHotkeySet` 一次性 IPC 实时生效，冲突时点名占用方并回滚旧键）。宿主未运行时仅保存，重启宿主后生效；
+  禁用后仍可经托盘呼出浮层，不会锁死。
 - 插件热键：由清单 `capabilities.hotkeys` 声明，经宿主 `IHotkeyService` 集中注册，触发后经 `hotkeyTriggered` 通知归属插件
 
 ## 浮层搜索

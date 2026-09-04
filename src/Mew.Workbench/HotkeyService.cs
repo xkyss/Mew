@@ -15,6 +15,9 @@ public sealed class HotkeyService : IHotkeyService
     /// <summary>WM_HOTKEY</summary>
     public const uint WmHotkey = 0x0312;
 
+    /// <summary>默认呼出热键（宿主与扩展主机设置页共用）。</summary>
+    public const string DefaultOverlayHotkey = "Alt+Space";
+
     private readonly List<Registration> _registrations = [];
     private int _nextId = BaseId;
 
