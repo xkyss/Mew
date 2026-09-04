@@ -149,9 +149,56 @@ internal sealed class MewHost
 
     internal bool IsPluginHostRunning => _pluginHostProcess is { HasExited: false };
 
+    /// <summary>打开主界面：活着就唤出窗口（关=隐藏，进程常驻），死了才拉起；宿主重启后遗留的前朝进程认领回来，不开第二个。</summary>
     internal void EnsurePluginHostRunning()
     {
-        if (IsPluginHostRunning) return;
+        if (_pluginHostProcess is { } tracked)
+        {
+            if (!tracked.HasExited)
+            {
+                if (TryShowProcessWindow(tracked.Id))
+                {
+                    Log($"主界面已唤出 pid={tracked.Id}");
+                }
+                else
+                {
+                    Log($"主界面进程活着但无窗口（启动中？）pid={tracked.Id}，不重复拉起");
+                }
+
+                return;
+            }
+
+            _pluginHostProcess = null;
+        }
+
+        var orphan = Process.GetProcessesByName("Mew.PluginHost").FirstOrDefault();
+        if (orphan is not null && !orphan.HasExited)
+        {
+            TrackPluginHostProcess(orphan);
+            if (TryShowProcessWindow(orphan.Id))
+            {
+                Log($"主界面前朝进程已认领并唤出 pid={orphan.Id}");
+            }
+            else
+            {
+                Log($"主界面前朝进程已认领 pid={orphan.Id}，暂无窗口");
+            }
+
+            return;
+        }
+
+        StartPluginHostProcess();
+    }
+
+    private void TrackPluginHostProcess(Process proc)
+    {
+        proc.EnableRaisingEvents = true;
+        proc.Exited += OnPluginHostExited;
+        _pluginHostProcess = proc;
+    }
+
+    private void StartPluginHostProcess()
+    {
         var exe = Path.Combine(AppContext.BaseDirectory, "Mew.PluginHost.exe");
         // 开发期 fallback：集中输出根上溯 4 级即得（Windows 为 .build，非 Windows 为 .build-linux）
         if (!File.Exists(exe))
@@ -170,9 +217,7 @@ internal sealed class MewHost
             var proc = Process.Start(psi);
             if (proc != null)
             {
-                proc.EnableRaisingEvents = true;
-                proc.Exited += OnPluginHostExited;
-                _pluginHostProcess = proc;
+                TrackPluginHostProcess(proc);
                 Log($"主界面已拉起 pid={proc.Id}");
             }
         }
@@ -180,6 +225,15 @@ internal sealed class MewHost
         {
             Warn($"主界面拉起失败：{ex.Message}");
         }
+    }
+
+    internal void RestartPluginHost()
+    {
+        // 重启=杀干净再起：跟踪中的先杀；宿主重启后遗留的前朝进程同样杀掉，保证起来的是新的
+        var victim = _pluginHostProcess is { HasExited: false } proc ? proc : Process.GetProcessesByName("Mew.PluginHost").FirstOrDefault();
+        try { victim?.Kill(); } catch { }
+        _pluginHostProcess = null;
+        StartPluginHostProcess();
     }
 
     /// <summary>告警并亮出主窗口（常驻隐藏态下保证提示可见）。仅 UI 线程调用。</summary>
@@ -209,13 +263,39 @@ internal sealed class MewHost
         catch { }
     }
 
-    internal void RestartPluginHost()
+    /// <summary>唤出指定进程的主窗口（最小化则恢复，隐藏则显示并前台）；找不到窗口返回 false（启动中时）。</summary>
+    private static bool TryShowProcessWindow(int pid)
     {
-        try { _pluginHostProcess?.Kill(); } catch { }
-        _pluginHostProcess = null;
-        EnsurePluginHostRunning();
-    }
+        nint found = 0;
+        EnumWindows((hwnd, _) =>
+        {
+            GetWindowThreadProcessId(hwnd, out var id);
+            if (id != pid || GetWindow(hwnd, GwOwner) != 0)
+            {
+                return true; // 非目标进程或被拥有的窗口（对话框等）跳过
+            }
 
+            found = hwnd;
+            return false;
+        }, 0);
+        if (found == 0)
+        {
+            return false;
+        }
+
+        if (IsIconic(found))
+        {
+            ShowWindow(found, SwRestore);
+        }
+        else
+        {
+            ShowWindow(found, SwShow);
+        }
+
+        AllowSetForegroundWindow(AsfwAny);
+        SetForegroundWindow(found);
+        return true;
+    }
 
     private void ToggleOverlayFromHotkey()
     {
@@ -256,6 +336,18 @@ internal sealed class MewHost
     private const uint WmSetIcon = 0x0080;
     private static readonly IntPtr IconSmall = IntPtr.Zero;
     private static readonly IntPtr IconBig = new(1);
+    [DllImport("user32.dll")] private static extern bool EnumWindows(NativeEnumWindowsProc callback, int lParam);
+    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(nint hwnd, out int processId);
+    [DllImport("user32.dll")] private static extern nint GetWindow(nint hwnd, uint cmd);
+    [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool IsIconic(nint hwnd);
+    [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool ShowWindow(nint hwnd, int cmdShow);
+    [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool SetForegroundWindow(nint hwnd);
+    [DllImport("user32.dll")] private static extern bool AllowSetForegroundWindow(uint processId);
+    private const uint GwOwner = 4;
+    private const int SwRestore = 9;
+    private const int SwShow = 5;
+    private const uint AsfwAny = 0xFFFFFFFF;
+    private delegate bool NativeEnumWindowsProc(nint hwnd, int lParam);
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)] private static extern uint ExtractIconEx(string f, int idx, out IntPtr large, out IntPtr small, uint n);
     [DllImport("user32.dll")] private static extern bool DestroyIcon(IntPtr h);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr SendMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
