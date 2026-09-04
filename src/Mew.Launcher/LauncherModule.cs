@@ -46,7 +46,8 @@ public sealed class LauncherModule : IMewToolModule
     private ScrollViewer? _listScrollViewer;
     private WrapPanel? _cardPanel;
     private readonly StackPanel _detailPanel = new();
-    private readonly StackPanel _logPanel = new();
+    private readonly List<string> _logLines = [];
+    private readonly MultiLineTextBox _logBox = new MultiLineTextBox { IsReadOnly = true, CanDrag = false, BorderThickness = 0, Wrap = true }.FontSize(12);
     private string _navId = LauncherData.AllNavId; // 当前导航节点:「全部」/ 分类 id /「未分类」
     private LauncherItem? _current;
     private bool _loading;
@@ -873,15 +874,22 @@ public sealed class LauncherModule : IMewToolModule
     private UIElement BuildOutputPanel()
     {
         AppendLog("就绪");
-        return _logPanel;
+        _logBox.Text = string.Join("\n", _logLines);
+        return _logBox;
     }
 
     private void AppendLog(string message)
     {
-        _logPanel.Add(new Label()
-            .Text($"{DateTime.Now:HH:mm:ss}  {message}")
-            .FontSize(12)
-            .WithTheme((_, label) => label.Foreground(_theme.Panel.Foreground)));
+        var line = $"{DateTime.Now:HH:mm:ss}  {message}";
+        _logLines.Add(line);
+        try
+        {
+            // 运行时追加（需图形后端量文本）；无头测试环境无后端，面板按快照重建时补
+            _logBox.AppendText(line + "\n", true);
+        }
+        catch (InvalidOperationException)
+        {
+        }
     }
 
     /// <summary>列表单击启动入口:同一启动项在防重时间窗内(双击场景)只启动一次。</summary>
