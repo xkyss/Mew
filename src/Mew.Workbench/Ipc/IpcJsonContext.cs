@@ -18,6 +18,8 @@ namespace Mew.Workbench.Ipc;
 [JsonSerializable(typeof(OverlayHotkeySetMessage))]
 [JsonSerializable(typeof(OverlayHotkeySetAckMessage))]
 [JsonSerializable(typeof(SettingsChangedMessage))]
+[JsonSerializable(typeof(PluginEnableSetMessage))]
+[JsonSerializable(typeof(PluginEnableSetAckMessage))]
 [JsonSerializable(typeof(SearchResultDto))]
 [JsonSerializable(typeof(List<SearchResultDto>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]

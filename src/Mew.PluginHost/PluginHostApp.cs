@@ -41,6 +41,7 @@ internal sealed class PluginHostApp
     private PluginEnableStore _pluginEnables = null!;
     private IReadOnlyList<PluginDescriptor> _discoveredPlugins = [];
     private StackPanel? _pluginPanel;
+    private string _pluginNotice = "";
     private StackPanel? _hotkeyPanel;
     private bool _capturingHotkey;
     private string _hotkeyNotice = "";
@@ -573,9 +574,9 @@ internal sealed class PluginHostApp
             var titleColor = row.IsWarning ? ShellIcons.HotkeyWarning : theme.EditorArea.Foreground;
             var title = new Label().Text($"{desc.Manifest.DisplayName} ({desc.Id}) v{desc.Manifest.Version}").WithTheme((_, l) => l.Foreground(titleColor));
             var healthLabel = new Label().Text(row.StatusWord).FontSize(11).WithTheme((_, l) => l.Foreground(row.IsWarning ? ShellIcons.HotkeyWarning : theme.EditorArea.Foreground));
-            // 单动作：健康行启用/禁用开关；清单错误/ID 重复/需 JIT 不提供误导性开关
+            // 单动作：健康行启用/禁用开关，经 IPC 请求宿主落盘（ADR-000203 单写者），扩展主机不再本地 Save
             var actionButton = new Button().Content(new Label().Text(row.ActionLabel)).CanDrag(false)
-                .OnClick(() => { _pluginEnables.SetEnabled(desc.Id, !enabled); _pluginEnables.Save(); RefreshPluginPanel(); });
+                .OnClick(() => TogglePluginEnabled(desc.Id, enabled));
             if (row.Action == PluginRowAction.None)
                 actionButton.Content(new Label().Text("—"));
             var children = new List<Element> { title, healthLabel };
@@ -586,5 +587,31 @@ internal sealed class PluginHostApp
             children.Add(actionButton);
             _pluginPanel.Add(new StackPanel().Spacing(2).Children(children.ToArray()));
         }
+        if (!string.IsNullOrEmpty(_pluginNotice))
+            _pluginPanel.Add(new Label().Text(_pluginNotice).FontSize(11).WithTheme((_, l) => l.Foreground(ShellIcons.HotkeyWarning)));
+    }
+
+    /// <summary>启用/禁用开关：经 IPC 请求宿主落盘 `plugins.json`，宿主确认后本地意图同步并刷新；
+    /// 宿主不可达时不本地写（避免双写竞争），仅提示。</summary>
+    private void TogglePluginEnabled(string id, bool currentlyEnabled)
+    {
+        var target = !currentlyEnabled;
+        _pluginNotice = "";
+        var ack = EnablePluginIpc.TrySet(id, target, out var transportError);
+        if (ack is { Ok: true })
+        {
+            // 宿主已确认落盘：同步本地意图并刷新（T2 生效时机 = 下次主界面启动，副提示由行态推导给出）
+            _pluginEnables.SetEnabled(id, ack.Enabled);
+            _pluginNotice = ack.Enabled ? "已启用（重启扩展主机后装载）" : "已禁用（重启扩展主机后生效）";
+        }
+        else if (ack is { Error: not null })
+        {
+            _pluginNotice = $"宿主未生效：{ack.Error}";
+        }
+        else
+        {
+            _pluginNotice = $"宿主未连接，操作未生效（{transportError}）";
+        }
+        RefreshPluginPanel();
     }
 }

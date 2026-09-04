@@ -79,6 +79,19 @@ public sealed record SettingsChangedMessage(
     [property: JsonPropertyName("json")] string Json
 ) : IpcMessage("settingsChanged");
 
+/// <summary>启用/禁用请求（扩展主机 → 宿主）：插件启用态唯一写者为宿主（ADR-000202/000203），扩展主机不再本地写。</summary>
+public sealed record PluginEnableSetMessage(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("enabled")] bool Enabled
+) : IpcMessage("pluginEnableSet");
+
+public sealed record PluginEnableSetAckMessage(
+    [property: JsonPropertyName("ok")] bool Ok,
+    [property: JsonPropertyName("error")] string? Error,
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("enabled")] bool Enabled
+) : IpcMessage("pluginEnableSetAck");
+
 public sealed record PluginCapabilitiesDto(
     [property: JsonPropertyName("search")] SearchCapabilityDto? Search,
     [property: JsonPropertyName("settingsSection")] SettingsSectionDto? SettingsSection,

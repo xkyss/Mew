@@ -15,12 +15,15 @@ public sealed class IpcServer
     private readonly HotkeyService? _hotkeys;
     private readonly SettingsService? _settings;
     private readonly Func<string?, bool, OverlayHotkeySetAckMessage>? _overlayHotkeySetter;
+    private readonly Func<string, bool, PluginEnableSetAckMessage>? _pluginEnableSetter;
 
-    public IpcServer(HotkeyService? hotkeys = null, SettingsService? settings = null, Func<string?, bool, OverlayHotkeySetAckMessage>? overlayHotkeySetter = null)
+    public IpcServer(HotkeyService? hotkeys = null, SettingsService? settings = null, Func<string?, bool, OverlayHotkeySetAckMessage>? overlayHotkeySetter = null,
+        Func<string, bool, PluginEnableSetAckMessage>? pluginEnableSetter = null)
     {
         _hotkeys = hotkeys;
         _settings = settings;
         _overlayHotkeySetter = overlayHotkeySetter;
+        _pluginEnableSetter = pluginEnableSetter;
     }
 
     public IReadOnlyList<IpcClientHandle> Clients
@@ -95,13 +98,13 @@ public sealed class IpcServer
     public bool IsHotkeyRegistered(string hotkey) => _hotkeys?.IsRegistered(hotkey) ?? false;
     public string? FindHotkeyOwner(string hotkey) => _hotkeys?.FindOwner(hotkey);
 
-    private static bool IsOverlayHotkeySet(string line)
+    private static bool IsOneShotMessage(string line, string typeName)
     {
         try
         {
             using var doc = JsonDocument.Parse(line);
             return doc.RootElement.TryGetProperty("type", out var type)
-                && string.Equals(type.GetString(), "overlayHotkeySet", StringComparison.Ordinal);
+                && string.Equals(type.GetString(), typeName, StringComparison.Ordinal);
         }
         catch (JsonException)
         {
@@ -109,10 +112,18 @@ public sealed class IpcServer
         }
     }
 
+    private static bool IsOverlayHotkeySet(string line) => IsOneShotMessage(line, "overlayHotkeySet");
+    private static bool IsPluginEnableSet(string line) => IsOneShotMessage(line, "pluginEnableSet");
+
     /// <summary>呼出热键设置入口（扩展主机经 IPC 调用）：无宿主处理器时明确拒绝，不断连。</summary>
     public OverlayHotkeySetAckMessage TrySetOverlayHotkey(string? hotkey, bool enabled) =>
         _overlayHotkeySetter?.Invoke(hotkey, enabled)
         ?? new OverlayHotkeySetAckMessage(false, "宿主不支持热键设置", hotkey, enabled);
+
+    /// <summary>插件启用/禁用入口（扩展主机经 IPC 请求宿主落盘，ADR-000203 单写者）：无宿主处理器时明确拒绝。</summary>
+    public PluginEnableSetAckMessage TrySetPluginEnabled(string id, bool enabled) =>
+        _pluginEnableSetter?.Invoke(id, enabled)
+        ?? new PluginEnableSetAckMessage(false, "宿主不支持启用/禁用操作", id, enabled);
 
     public event Action<string>? ClientDisconnected;
 
@@ -188,7 +199,7 @@ public sealed class IpcServer
             {
                 line = await reader.ReadLineAsync(ct);
                 if (line == null) return;
-                // 一次性请求（扩展主机热键设置等）：首行非 register 即按类型处理后关闭连接，不进入长连接流程
+                // 一次性请求（扩展主机热键设置、插件启用/禁用等）：首行非 register 即按类型处理后关闭连接，不进入长连接流程
                 if (IsOverlayHotkeySet(line))
                 {
                     var setMsg = JsonSerializer.Deserialize(line, IpcJsonContext.Default.OverlayHotkeySetMessage);
@@ -196,6 +207,15 @@ public sealed class IpcServer
                         ? new OverlayHotkeySetAckMessage(false, "消息解析失败", null, false)
                         : TrySetOverlayHotkey(setMsg.Hotkey, setMsg.Enabled);
                     await writer.WriteLineAsync(JsonSerializer.Serialize(setAck, IpcJsonContext.Default.OverlayHotkeySetAckMessage));
+                    return;
+                }
+                if (IsPluginEnableSet(line))
+                {
+                    var setMsg = JsonSerializer.Deserialize(line, IpcJsonContext.Default.PluginEnableSetMessage);
+                    var setAck = setMsg is null
+                        ? new PluginEnableSetAckMessage(false, "消息解析失败", "", false)
+                        : TrySetPluginEnabled(setMsg.Id, setMsg.Enabled);
+                    await writer.WriteLineAsync(JsonSerializer.Serialize(setAck, IpcJsonContext.Default.PluginEnableSetAckMessage));
                     return;
                 }
                 var reg = JsonSerializer.Deserialize(line, IpcJsonContext.Default.RegisterMessage);

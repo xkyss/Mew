@@ -35,7 +35,8 @@ internal sealed class MewHost
     private Process? _pluginHostProcess;
     private TrayIcon? _tray;
     private IpcServer _ipcServer = null!;
-    private readonly HashSet<string> _crashedPlugins = new(StringComparer.OrdinalIgnoreCase);
+    private PluginLifecycleEngine _lifecycleEngine = null!;
+    private readonly HashSet<string> _knownPluginIds = new(StringComparer.OrdinalIgnoreCase);
 
     internal void Run()
     {
@@ -51,12 +52,14 @@ internal sealed class MewHost
         _settings = settings;
         var hotkeys = new HotkeyService();
         _hotkeys = hotkeys;
-        var ipcServer = new IpcServer(hotkeys, settings, OnOverlayHotkeySet);
+        _lifecycleEngine = new PluginLifecycleEngine(LaunchPluginProcess);
+        var ipcServer = new IpcServer(hotkeys, settings, OnOverlayHotkeySet, OnPluginEnableSet);
         _ipcServer = ipcServer;
         ipcServer.ClientDisconnected += id =>
         {
-            _crashedPlugins.Add(id);
-            Log($"插件 {id} 已崩溃/断开");
+            // IPC 断连：T3 行归因到引擎（仅引擎托管的启用 exe 插件才标已崩溃），其余仅日志
+            _lifecycleEngine.MarkUnexpectedExit(id);
+            Log($"插件 {id} IPC 断开");
             // Toast 需在 UI 线程，暂仅日志，避免跨线程集合修改崩溃
         };
         ipcServer.Start();
@@ -74,11 +77,23 @@ internal sealed class MewHost
         var roots = PluginDiscovery.ResolvePluginRoots(settings.PluginDirs, userPluginsDir, installPluginsDir);
         Log($"插件目录：{string.Join("；", roots)}");
         var full = discovery.Discover(roots);
-        // 宿主侧只消费独立进程插件（exe）；运行期 DLL 由扩展主机按同一来源代管，宿主侧置灰
-        _discoveredPlugins = PluginDiscovery.FilterExeLoadable(full, _pluginEnables);
+        foreach (var d in full.Where(d => !PluginDiscovery.IsReservedHostId(d.Id)))
+            _knownPluginIds.Add(d.Id);
         // 全量名单写入快照：扩展主机按单加载，不再自扫（快照缺失回退本地扫描）
         new PluginSnapshotStore().Save(full);
         Log($"插件快照已写入：{full.Count} 项");
+        // T3（exe 独立进程）生命周期引擎托管：注册全部 exe 项并按启用态自动拉起
+        foreach (var desc in full.Where(d => !PluginDiscovery.IsReservedHostId(d.Id)
+            && string.Equals(d.Manifest.Entry.Type, "exe", StringComparison.OrdinalIgnoreCase)))
+            _lifecycleEngine.Register(desc);
+        var enabledExe = full.Where(d => d.IsValid && !PluginDiscovery.IsReservedHostId(d.Id)
+            && string.Equals(d.Manifest.Entry.Type, "exe", StringComparison.OrdinalIgnoreCase)
+            && _pluginEnables.IsEnabled(d.Id)).ToList();
+        _lifecycleEngine.ReconcileStartup(enabledExe);
+        // 宿主侧只消费独立进程插件（exe）用于窗口展示；运行期 DLL 由扩展主机代管
+        _discoveredPlugins = full.Where(d => !PluginDiscovery.IsReservedHostId(d.Id)
+            && string.Equals(d.Manifest.Entry.Type, "exe", StringComparison.OrdinalIgnoreCase)).ToList();
+        Log($"宿主托管 T3 插件：{_discoveredPlugins.Count} 项（启用 {enabledExe.Count} 项已拉起）");
 
         // 首启直接隐藏到托盘：以 0 透明度进入 Run，窗口创建并 show 但全程不可见（消除"一闪而过"）。
         // 关键：Loaded 里所有初始化（图标/热键/托盘）都必须在仍为 0 透明度时做完，先 Hide 再恢复不透明——
@@ -317,6 +332,90 @@ internal sealed class MewHost
         _settings.Save();
         Log(effectiveEnabled ? $"呼出热键已改为：{effectiveHotkey}" : "呼出热键已禁用");
         return new OverlayHotkeySetAckMessage(true, null, effectiveHotkey, effectiveEnabled);
+    }
+
+    /// <summary>插件启用/禁用落盘入口（扩展主机经 IPC 请求，ADR-000203 单写者）：宿主是唯一写者。
+    /// T3（exe）由引擎托管立即生效（启用即拉起、禁用即杀）；T2/T1 只落意图，由扩展主机下次装载。</summary>
+    private PluginEnableSetAckMessage OnPluginEnableSet(string id, bool enabled)
+    {
+        if (PluginDiscovery.IsReservedHostId(id) || !_knownPluginIds.Contains(id))
+            return new PluginEnableSetAckMessage(false, $"未知插件：{id}", id, enabled);
+        _pluginEnables.SetEnabled(id, enabled);
+        _pluginEnables.Save();
+        Log(enabled ? $"插件已启用（宿主落盘）：{id}" : $"插件已禁用（宿主落盘）：{id}");
+        var state = _lifecycleEngine.GetState(id, _pluginEnables.IsEnabled);
+        if (state is not null)
+        {
+            if (enabled) _lifecycleEngine.Start(id, out _);
+            else _lifecycleEngine.Stop(id);
+        }
+        return new PluginEnableSetAckMessage(true, null, id, enabled);
+    }
+
+    /// <summary>T3 插件进程拉起器（引擎 launcher）：解析清单入口为绝对路径并启动，包成进程句柄交给引擎托管。
+    /// 拉不起（入口缺失/启动异常）返回 null，由引擎保持未启动态、宿主日志说明。</summary>
+    private IPluginProcessHandle? LaunchPluginProcess(PluginDescriptor desc)
+    {
+        var dir = Path.GetDirectoryName(desc.ManifestPath);
+        if (string.IsNullOrEmpty(dir))
+        {
+            Warn($"插件 {desc.Id} 清单目录无法解析：{desc.ManifestPath}");
+            return null;
+        }
+        var exe = Path.Combine(dir, desc.Manifest.Entry.Path);
+        if (!File.Exists(exe))
+        {
+            Warn($"插件 {desc.Id} 入口缺失：{exe}");
+            return null;
+        }
+        try
+        {
+            var psi = new ProcessStartInfo(exe) { UseShellExecute = false, WorkingDirectory = dir };
+            if (!string.IsNullOrWhiteSpace(desc.Manifest.Entry.Args))
+                psi.Arguments = desc.Manifest.Entry.Args;
+            var proc = Process.Start(psi);
+            if (proc is null)
+            {
+                Warn($"插件 {desc.Id} 拉起无进程句柄");
+                return null;
+            }
+            Log($"插件 {desc.Id} 已拉起 pid={proc.Id}");
+            return new PluginProcessHandle(proc);
+        }
+        catch (Exception ex)
+        {
+            Warn($"插件 {desc.Id} 拉起失败：{ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>真实进程句柄适配：把 System.Diagnostics.Process 的 Exited/Kill/HasExited 桥接为引擎契约。</summary>
+    private sealed class PluginProcessHandle : IPluginProcessHandle
+    {
+        private readonly Process _process;
+
+        public PluginProcessHandle(Process process)
+        {
+            _process = process;
+            process.EnableRaisingEvents = true;
+            process.Exited += (_, _) => Exited?.Invoke();
+        }
+
+        public event Action? Exited;
+
+        public bool IsRunning
+        {
+            get
+            {
+                try { return !_process.HasExited; }
+                catch { return false; }
+            }
+        }
+
+        public void Stop()
+        {
+            try { _process.Kill(); } catch { }
+        }
     }
 
     private void ApplyWindowIcon(Window window)
