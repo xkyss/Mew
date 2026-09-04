@@ -4,9 +4,15 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] 扩展主机插件列表只列 T1/T2（过滤 exe 行），特殊容器（扩展主机自身）仍不出现
-- [ ] 行状态词由 01 推导得出，不再只按 enabled 直推
-- [ ] T2 禁用且本次会话仍加载 → 显示「已禁用」+「重启扩展主机后生效」副提示，不谎称已停
-- [ ] 清单错误 / ID 重复行标红且不提供误导性开关；需 JIT 置灰语义保留
+- [x] 扩展主机插件列表只列 T1/T2（过滤 exe 行），特殊容器（扩展主机自身）仍不出现
+- [x] 行状态词由 01 推导得出，不再只按 enabled 直推
+- [x] T2 禁用且本次会话仍加载 → 显示「已禁用」+「重启扩展主机后生效」副提示，不谎称已停
+- [x] 清单错误 / ID 重复行标红且不提供误导性开关；需 JIT 置灰语义保留
+
+## Comments
+
+- 已完成。扩展主机设置→插件列表经 `PluginDiscovery.IsExtensionHostManaged` 过滤（T1/T2 非 exe 行），行标签改用 `PluginRowState.Derive`，本会话仍加载的已禁用 T2 如实带「重启扩展主机后生效」副提示。
+- 共享过滤判定 `IsExtensionHostManaged` 落 `PluginDiscovery` 并补测试（`PluginDiscoveryTests`），宿主/扩展主机两侧语义同一来源。
+- 相关测试：宿主测试工程全量通过。
