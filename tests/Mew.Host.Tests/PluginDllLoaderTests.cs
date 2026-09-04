@@ -228,6 +228,33 @@ public class PluginDllLoaderTests
         public void Configure(ToolModuleContext context) { }
     }
 
+    [Fact]
+    public void Load_真实Launcher_作为T2加载成功()
+    {
+        // Launcher 已摘除 T1 编译进扩展主机（标准 T2 插件）：以构建产物实证整条加载链路
+        var tmp = Path.Combine(Path.GetTempPath(), "mew-dll-launcher-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(tmp, "launcher"));
+        try
+        {
+            var self = typeof(Mew.Launcher.LauncherModule).Assembly.Location;
+            Assert.True(File.Exists(self));
+            File.Copy(self, Path.Combine(tmp, "launcher", "Mew.Launcher.dll"), true);
+            WriteManifest(Path.Combine(tmp, "launcher", "plugin.json"), "launcher", "启动项", "1.0.0", "dll", "Mew.Launcher.dll");
+
+            var discovered = new PluginDiscovery().Discover(tmp, Path.Combine(tmp, "_empty"));
+            var enableStore = new PluginEnableStore(Path.Combine(Path.GetTempPath(), "mew-en-l-" + Guid.NewGuid() + ".json"));
+            enableStore.Load();
+            var loader = new Mew.PluginHost.PluginDllLoader();
+            var results = loader.Load(discovered, enableStore, () => CreateContext());
+
+            Assert.Single(results);
+            Assert.True(results[0].Success, results[0].Error);
+            Assert.Single(loader.Loaded);
+            Assert.Equal("launcher", loader.Loaded[0].Module.Id);
+        }
+        finally { Directory.Delete(tmp, true); }
+    }
+
     private static ToolModuleContext CreateContext()
     {
         var wb = new WorkbenchType();

@@ -12,9 +12,9 @@
 
 ```
 src/Mew.Host/        — 宿主常驻（AOT，托盘/热键/浮层框架/插件发现/IPC 路由）
-src/Mew.PluginHost/  — 主界面（JIT，Workbench 五区 + T1/T2 工具模块）
+src/Mew.PluginHost/  — 主界面（JIT，Workbench 五区 + T2 运行期 DLL 插件，不再编译进任何工具模块）
 src/Mew.Workbench/   — 主框架（五区、主题、布局、Overlay 聚合、IPC 契约）
-src/Mew.Launcher/    — 示例工具模块（T1 编译期）
+src/Mew.Launcher/    — 示例工具模块（标准 T2 插件，自带 plugin.json）
 Mew.slnx             — 4 工程（Host/PluginHost/Workbench/Launcher）+ 2 测试
 ```
 
@@ -40,6 +40,9 @@ dotnet run --project src/Mew.Host/Mew.Host.csproj
 dotnet run --project src/Mew.PluginHost/Mew.PluginHost.csproj
 ```
 
+> 主界面不再内置任何工具模块：本地联调把插件目录指向 Launcher 构建输出
+> （`设置 → 插件 → 插件目录` 加一行，或 `MEW_PLUGINS_EXTRA`），否则打开是只有设置的空壳。
+
 ## 发布（双 exe）
 
 默认分发为双 exe 同目录：
@@ -50,6 +53,9 @@ dotnet publish src/Mew.PluginHost -c Release -r win-x64 -o publish
 # 产物：
 # publish/Mew.Host.exe       — AOT，秒开常驻
 # publish/Mew.PluginHost.exe — JIT，可加载 DLL 插件
+# 另需 Launcher（标准 T2，随包分发）：
+dotnet publish src/Mew.Launcher -c Release -r win-x64 -o publish/Plugins/launcher
+# publish/Plugins/launcher/Mew.Launcher.dll + plugin.json
 ```
 
 单 AOT 回退：仅分发 `Mew.Host.exe` 时，`T2`（`type=dll`）插件在 `设置 → 插件` 置灰并提示“需 JIT 主界面”，`T3`（`type=exe`）仍可用。

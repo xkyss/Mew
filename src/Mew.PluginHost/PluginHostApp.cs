@@ -2,7 +2,6 @@ using System.Runtime.InteropServices;
 using Aprillz.MewUI;
 using Aprillz.MewUI.Controls;
 using Aprillz.MewUI.Rendering;
-using Mew.Launcher;
 using Mew.Workbench;
 using Mew.Workbench.Ipc;
 using Mew.Workbench.Plugins;
@@ -45,7 +44,6 @@ internal sealed class PluginHostApp
     private StackPanel? _hotkeyPanel;
     private bool _capturingHotkey;
     private string _hotkeyNotice = "";
-    private IpcClient? _ipcClient;
     private PluginDllLoader? _dllLoader;
     private readonly List<IpcClient> _dllIpcClients = [];
     private IReadOnlyList<PluginLoadResult> _dllLoadResults = [];
@@ -95,17 +93,7 @@ internal sealed class PluginHostApp
         settingsSections.Add("plugins", "插件", BuildPluginPanel);
         settingsSections.Add("hotkeys", "热键", BuildHotkeyPanel);
 
-        // 组合根：编译期模块（T1）
-        try
-        {
-            AddModule(new LauncherModule());
-            PluginHostLog.Write("内置模块 launcher：Configure 成功");
-        }
-        catch (Exception ex)
-        {
-            PluginHostLog.Write($"内置模块 launcher：Configure 失败：{ex.Message}");
-            throw;
-        }
+        // T1 已摘除：Launcher 转为标准 T2 插件（见 src/Mew.Launcher/plugin.json），不再编译进扩展主机。
 
         // T2 DLL 运行时加载（按目录 ALC 隔离）
         _dllLoader = new PluginDllLoader();
@@ -125,19 +113,6 @@ internal sealed class PluginHostApp
             if (client.Connect(out _)) _dllIpcClients.Add(client);
         }
         CapturingOverlay.Captured.Clear();
-
-        // IPC：向宿主注册编译期 Launcher 搜索源（管道模式，宿主为 server）
-        // 取 Launcher 的搜索源：通过 overlay 间接获取，简化为新建一个可查询的源占位
-        var launcherSource = new IpcSearchSourceAdapter("launcher", "启动项", query =>
-        {
-            // 委托给本地 LauncherSearch 逻辑：此处复用 LauncherSearchSource 的查询（需 items）
-            // 为简化，返回空由真实 LauncherSearchSource 在扩展主机内的 overlay 中已注册，
-            // 此处创建的适配器仅为演示 IPC 链路，实际应转发至同一数据源
-            return [];
-        });
-        _ipcClient = new IpcClient(launcherSource, "launcher", "启动项", 1, new PluginCapabilitiesDto(new SearchCapabilityDto("launcher", "启动项"), null, null));
-        // 尝试管道连接，失败不影响本地 Workbench 启动（单进程回退）
-        _ipcClient.Connect(out _);
 
         // 内部插件：五区本身视为首个内部插件的占位描述（与外部插件同等可见）
         // 实际五区贡献已由各模块完成，此处仅为清单语义保留
@@ -191,8 +166,6 @@ internal sealed class PluginHostApp
 
         void Quit() => Application.Quit();
     }
-
-    private void AddModule(IMewToolModule module) => module.Configure(_context);
 
     /// <summary>底部面板「插件日志」视图：与 plugin-host.log 同源的启动期生命周期快照；整块只读多行文本，拖选复制。</summary>
     private UIElement BuildLogPanel()
@@ -556,15 +529,6 @@ internal sealed class PluginHostApp
         if (!string.IsNullOrEmpty(_hotkeyNotice))
             _hotkeyPanel.Add(new Label().Text(_hotkeyNotice).FontSize(11).WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground)));
         _hotkeyPanel.Add(new Label().Text("修改/禁用实时经 IPC 生效；宿主未运行时仅保存，重启宿主后生效").FontSize(11).WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground)));
-    }
-
-    private sealed class IpcSearchSourceAdapter : ISearchSource
-    {
-        private readonly Func<string, IReadOnlyList<SearchResult>> _fn;
-        public IpcSearchSourceAdapter(string id, string displayName, Func<string, IReadOnlyList<SearchResult>> fn) { Id = id; DisplayName = displayName; _fn = fn; }
-        public string Id { get; }
-        public string DisplayName { get; }
-        public IReadOnlyList<SearchResult> Search(string query, int maxResults) => _fn(query).Take(maxResults).ToList();
     }
 
     private sealed class CapturingOverlay : Mew.Workbench.IOverlayService

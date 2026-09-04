@@ -1,0 +1,12 @@
+{
+  "id": "launcher",
+  "displayName": "启动项",
+  "version": "1.0.0",
+  "entry": { "type": "dll", "path": "Mew.Launcher.dll" },
+  "capabilities": {
+    "search": { "providerId": "launcher", "displayName": "启动项" },
+    "settingsSection": { "id": "data", "title": "数据" }
+  },
+  "permissions": ["search", "settings"],
+  "protocolVersion": 1
+}
