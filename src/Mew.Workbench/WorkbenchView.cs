@@ -409,8 +409,11 @@ internal sealed class WorkbenchView
     private void EnsurePanelHost(DockingManager docking)
     {
         ConstrictPanelHosts(docking);
-        if (docking.Panes.Any(pane => pane.Component == PanelHostPaneId))
+        var existing = docking.Panes.FirstOrDefault(pane => pane.Component == PanelHostPaneId);
+        if (existing is not null)
         {
+            // 恢复的旧窗格带着落盘时的标题（如“面板”）：一律清空，自建页签条已含标题。
+            existing.Title = "";
             return;
         }
 
