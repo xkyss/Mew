@@ -20,7 +20,9 @@ internal sealed class WorkbenchView
     // 必须解析到同一个实例。MewDock 的 SyncContent 在显式内容与 factory 内容实例不一致时会分离旧内容,
     // 而共享子元素(如设置文档的 StackPanel)的 Parent 仍指向已分离的旧包装,导致其无法重新挂接、tab 空白。
     private readonly Dictionary<string, UIElement> _paneContents = [];
-    // 底部面板宿主窗格 id：多视图收敛为单个工具窗格，自建顶部页签条（VSCode 式），标题栏经 HeaderFactory 置空。
+    // 底部面板宿主窗格 id：多视图收敛为单个工具窗格，自建顶部页签条（VSCode 式）切换视图；
+    // 保留 MewDock 工具窗格标题栏（DockCaption），提供整窗格拖动与右上角 ▾/−/×（Float/Auto Hide/Close）操作；
+    // 标题置空（仅留按钮），避免与自建页签条重复。
     private const string PanelHostPaneId = "panel-host";
     // 已接线「悬浮显示关闭按钮」的 tab 实例:布局变更重扫时去重,避免重复订阅鼠标事件。
     private readonly HashSet<object> _configuredTabClose = [];
@@ -86,7 +88,6 @@ internal sealed class WorkbenchView
             // 布局变更可能新建 tabset 视图:重新断言模型 flag + 视图层直接隐藏按钮 + 接线 tab 关闭按钮悬浮显示
             DisableTabSetMaximize(docking);
             HideMaximizeButtons(docking);
-            SuppressPanelCaptions(docking);
             ConfigureTabCloseHover(docking);
             WireSplitterCursors(docking);
             layoutStore.Save(docking.SaveLayout());
@@ -120,7 +121,6 @@ internal sealed class WorkbenchView
         ApplyChromeVisibility();
         DisableDockZoneBorders(docking);
         HideMaximizeButtons(docking); // 初始 tabset 视图已就绪,视图层隐藏最大化按钮
-        SuppressPanelCaptions(docking); // 底部宿主窗格标题栏置空（自建页签条已含标题）
         ConfigureTabCloseHover(docking); // 初始 tab 的关闭按钮默认隐藏,悬浮时显示
         WireSplitterCursors(docking); // 拖动分隔条时鼠标样式变为缩放指针
         return shell;
@@ -145,7 +145,7 @@ internal sealed class WorkbenchView
             ApplySideBarVisibility();
             ApplyActivitySelection();
             ConstrictPanelHosts();
-            ApplyToolPane(PanelHostPaneId, "面板", PaneContent(PanelHostPaneId, BuildPanelHost(), WorkbenchZone.Panel), DockEdge.Bottom, WorkbenchZone.Panel, _workbench.IsPanelVisible);
+            ApplyToolPane(PanelHostPaneId, "", PaneContent(PanelHostPaneId, BuildPanelHost(), WorkbenchZone.Panel), DockEdge.Bottom, WorkbenchZone.Panel, _workbench.IsPanelVisible);
             RefreshPanelHost();
         }
         finally
@@ -414,7 +414,7 @@ internal sealed class WorkbenchView
             return;
         }
 
-        docking.AddToolPane("面板", PaneContent(PanelHostPaneId, BuildPanelHost(), WorkbenchZone.Panel), DockEdge.Bottom, PanelHostPaneId);
+        docking.AddToolPane("", PaneContent(PanelHostPaneId, BuildPanelHost(), WorkbenchZone.Panel), DockEdge.Bottom, PanelHostPaneId);
     }
 
     /// <summary>
@@ -685,76 +685,6 @@ internal sealed class WorkbenchView
                     : CursorType.SizeWE;
             }
         });
-    }
-
-    /// <summary>
-    /// 底部宿主窗格不显示 MewDock 标题栏（自建顶部页签条已含标题，标题栏纯属重复）。
-    /// 布局就绪与每次布局变更后，把“子项全为面板视图”的 tabset 视图的 _toolCaption 置空并重排：
-    /// 混入其他窗格（如拖入的编辑器文档）时保留标题栏以便辨认。_toolCaption 空安全经反编译确认
-    /// （Arrange/CaptionHeight/SyncSelection/Measure 均为 dup/brtrue 守卫）；版本锁定 0.19.1，升级需重验。
-    /// 与 HideMaximizeButtons 同属 MewDock 内部适配。
-    /// </summary>
-    private void SuppressPanelCaptions(DockingManager docking)
-    {
-        var assembly = typeof(DockingManager).Assembly;
-        if (assembly.GetType("Aprillz.MewUI.MewDock.Controls.FlexTabSetView") is not { } viewType)
-        {
-            return;
-        }
-
-        var tabSetField = viewType.GetField("_tabSet", BindingFlags.NonPublic | BindingFlags.Instance);
-        var captionField = viewType.GetField("_toolCaption", BindingFlags.NonPublic | BindingFlags.Instance);
-        if (tabSetField is null || captionField is null || docking.Children.FirstOrDefault() is not Panel root)
-        {
-            return;
-        }
-
-        var panelIds = new HashSet<string>(_workbench.PanelModel.Views.Select(view => view.Id).Append(PanelHostPaneId));
-        var stack = new Stack<Panel>();
-        stack.Push(root);
-        while (stack.Count > 0)
-        {
-            var panel = stack.Pop();
-            foreach (var child in panel.Children)
-            {
-                if (viewType.IsInstanceOfType(child) && child is Element view
-                    && IsPanelOnlyTabSet(tabSetField.GetValue(child), panelIds)
-                    && captionField.GetValue(child) is not null)
-                {
-                    captionField.SetValue(child, null);
-                    view.InvalidateMeasure();
-                    view.InvalidateArrange();
-                }
-                else if (child is Panel nested)
-                {
-                    stack.Push(nested);
-                }
-            }
-        }
-    }
-
-    private static bool IsPanelOnlyTabSet(object? tabSet, HashSet<string> panelIds)
-    {
-        var children = tabSet?.GetType()
-            .GetProperty("Children", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?
-            .GetValue(tabSet) as System.Collections.IEnumerable;
-        if (children is null)
-        {
-            return false;
-        }
-
-        var ids = new List<string>();
-        foreach (var tab in children)
-        {
-            if (tab.GetType().GetProperty("Component")?.GetValue(tab) is not string component)
-            {
-                return false;
-            }
-
-            ids.Add(component);
-        }
-
-        return ids.Count > 0 && ids.All(panelIds.Contains);
     }
 
     /// <summary>
