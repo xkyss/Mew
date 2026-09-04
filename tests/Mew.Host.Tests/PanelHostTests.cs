@@ -42,6 +42,7 @@ public class PanelHostTests
     [Fact]
     public void Build_底部多视图收敛为单个宿主窗格()
     {
+        using var _ = IsolateUserFiles();
         var workbench = new WorkbenchType();
         var ctx = ModuleContext(workbench);
         new LauncherModule().Configure(ctx);
@@ -83,6 +84,47 @@ public class PanelHostTests
     private sealed class RecordingOverlay : Mew.Workbench.IOverlayService
     {
         public void AddSearchSource(ISearchSource s) { }
+    }
+
+    private static IDisposable IsolateUserFiles()
+    {
+        var appData = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Mew");
+        var names = new[] { "launcher.json", "layout.json", "presentation.json" };
+        var saved = names.ToDictionary(name => name, name => File.Exists(Path.Combine(appData, name))
+            ? File.ReadAllBytes(Path.Combine(appData, name))
+            : null);
+        foreach (var name in names)
+        {
+            try { File.Delete(Path.Combine(appData, name)); } catch (IOException) { }
+        }
+
+        return new Disposable(() =>
+        {
+            foreach (var (name, bytes) in saved)
+            {
+                var path = Path.Combine(appData, name);
+                try
+                {
+                    if (bytes is not null)
+                    {
+                        Directory.CreateDirectory(appData);
+                        File.WriteAllBytes(path, bytes);
+                    }
+                    else
+                    {
+                        File.Delete(path);
+                    }
+                }
+                catch (IOException)
+                {
+                }
+            }
+        });
+    }
+
+    private sealed class Disposable(Action dispose) : IDisposable
+    {
+        public void Dispose() => dispose();
     }
 
     private static class PanelFindHelper
