@@ -20,6 +20,8 @@ internal sealed class WorkbenchView
     // 必须解析到同一个实例。MewDock 的 SyncContent 在显式内容与 factory 内容实例不一致时会分离旧内容,
     // 而共享子元素(如设置文档的 StackPanel)的 Parent 仍指向已分离的旧包装,导致其无法重新挂接、tab 空白。
     private readonly Dictionary<string, UIElement> _paneContents = [];
+    // 底部面板宿主窗格 id：多视图收敛为单个工具窗格，自建顶部页签条（VSCode 式），标题栏经 HeaderFactory 置空。
+    private const string PanelHostPaneId = "panel-host";
     // 已接线「悬浮显示关闭按钮」的 tab 实例:布局变更重扫时去重,避免重复订阅鼠标事件。
     private readonly HashSet<object> _configuredTabClose = [];
 
@@ -42,6 +44,21 @@ internal sealed class WorkbenchView
             try
             {
                 docking.LoadLayout(savedLayout);
+                // 旧布局把各面板视图存成了独立窗格：关闭后收敛到宿主窗格（单页签条），手动调过的底部高度保留在宿主窗格上。
+                // 历史启动风暴可能攒出多个宿主窗格（一度因此崩溃）：只留首个，其余关闭，下次启动即自愈。
+                foreach (var view in _workbench.PanelModel.Views)
+                {
+                    docking.Panes.FirstOrDefault(pane => pane.Component == view.Id)?.Close();
+                }
+
+                foreach (var extra in docking.Panes.Where(pane => pane.Component == PanelHostPaneId).Skip(1).ToList())
+                {
+                    extra.Close();
+                }
+
+                EnsurePanelHost(docking);
+                // 收敛后立即落盘定稿：不依赖后续布局变更才保存，避免脏布局再被恢复。
+                layoutStore.Save(docking.SaveLayout());
             }
             catch (Exception ex) when (ex is JsonException or InvalidOperationException or ArgumentException)
             {
@@ -69,6 +86,7 @@ internal sealed class WorkbenchView
             // 布局变更可能新建 tabset 视图:重新断言模型 flag + 视图层直接隐藏按钮 + 接线 tab 关闭按钮悬浮显示
             DisableTabSetMaximize(docking);
             HideMaximizeButtons(docking);
+            SuppressPanelCaptions(docking);
             ConfigureTabCloseHover(docking);
             WireSplitterCursors(docking);
             layoutStore.Save(docking.SaveLayout());
@@ -92,6 +110,7 @@ internal sealed class WorkbenchView
             new WorkbenchPresentationState
             {
                 ActiveActivityId = _workbench.ActiveActivityId,
+                ActivePanelId = _workbench.ActivePanelId,
                 IsActivityBarVisible = _workbench.IsActivityBarVisible,
                 IsSideBarVisible = _workbench.IsSideBarVisible,
                 IsPanelVisible = _workbench.IsPanelVisible,
@@ -101,6 +120,7 @@ internal sealed class WorkbenchView
         ApplyChromeVisibility();
         DisableDockZoneBorders(docking);
         HideMaximizeButtons(docking); // 初始 tabset 视图已就绪,视图层隐藏最大化按钮
+        SuppressPanelCaptions(docking); // 底部宿主窗格标题栏置空（自建页签条已含标题）
         ConfigureTabCloseHover(docking); // 初始 tab 的关闭按钮默认隐藏,悬浮时显示
         WireSplitterCursors(docking); // 拖动分隔条时鼠标样式变为缩放指针
         return shell;
@@ -124,11 +144,9 @@ internal sealed class WorkbenchView
 
             ApplySideBarVisibility();
             ApplyActivitySelection();
-
-            foreach (var panel in _workbench.PanelModel.Views)
-            {
-                ApplyToolPane(panel.Id, panel.Title, panel.Content, DockEdge.Bottom, WorkbenchZone.Panel, _workbench.IsPanelVisible);
-            }
+            ConstrictPanelHosts();
+            ApplyToolPane(PanelHostPaneId, "面板", PaneContent(PanelHostPaneId, BuildPanelHost(), WorkbenchZone.Panel), DockEdge.Bottom, WorkbenchZone.Panel, _workbench.IsPanelVisible);
+            RefreshPanelHost();
         }
         finally
         {
@@ -181,7 +199,7 @@ internal sealed class WorkbenchView
             ? docking.Panes.Any(pane => pane.Component == sideBar.Id)
             : null;
         bool? panelVisible = _workbench.PanelModel.Views.Count > 0
-            ? _workbench.PanelModel.Views.Any(view => docking.Panes.Any(pane => pane.Component == view.Id))
+            ? docking.Panes.Any(pane => pane.Component == PanelHostPaneId)
             : null;
 
         _workbench.SynchronizeToolPaneVisibility(sideBarVisible, panelVisible);
@@ -384,9 +402,36 @@ internal sealed class WorkbenchView
             docking.AddDocumentPane(document.Title, PaneContent(document.Id, document.Content, WorkbenchZone.EditorArea), document.Id);
         }
 
-        foreach (var view in _workbench.PanelModel.Views)
+        EnsurePanelHost(docking);
+    }
+
+    /// <summary>底部面板宿主窗格：单窗格承载全部面板视图（自建顶部页签条切换）。</summary>
+    private void EnsurePanelHost(DockingManager docking)
+    {
+        ConstrictPanelHosts(docking);
+        if (docking.Panes.Any(pane => pane.Component == PanelHostPaneId))
         {
-            docking.AddToolPane(view.Title, PaneContent(view.Id, view.Content, WorkbenchZone.Panel), DockEdge.Bottom, view.Id);
+            return;
+        }
+
+        docking.AddToolPane("面板", PaneContent(PanelHostPaneId, BuildPanelHost(), WorkbenchZone.Panel), DockEdge.Bottom, PanelHostPaneId);
+    }
+
+    /// <summary>
+    /// 宿主窗格收敛：只留首个，多余关闭。启动风暴曾攒出多个宿主窗格并因此崩溃
+    /// （陈旧视图点击时模型已无其 tabset），每次应用即收敛，保证稳态唯一。
+    /// </summary>
+    private void ConstrictPanelHosts(DockingManager? docking = null)
+    {
+        var manager = docking ?? _docking;
+        if (manager is null)
+        {
+            return;
+        }
+
+        foreach (var extra in manager.Panes.Where(pane => pane.Component == PanelHostPaneId).Skip(1).ToList())
+        {
+            extra.Close();
         }
     }
 
@@ -395,6 +440,11 @@ internal sealed class WorkbenchView
         if (pane.Component is not { } id)
         {
             return null;
+        }
+
+        if (id == PanelHostPaneId)
+        {
+            return PaneContent(id, BuildPanelHost(), WorkbenchZone.Panel);
         }
 
         foreach (var view in _workbench.SideBarModel.Views)
@@ -506,6 +556,76 @@ internal sealed class WorkbenchView
         return button;
     }
 
+    private Grid? _panelHost;
+    private Grid? _panelContentSlot;
+    private readonly Dictionary<string, Button> _panelTabButtons = [];
+
+    /// <summary>
+    /// 底部面板宿主内容:顶部自建页签条 + 当前视图内容。构建一次并缓存（PaneContent 同样缓存，
+    /// 两者同一实例），页签切换只换内容槽子元素与按钮背景，不重建树。
+    /// </summary>
+    private UIElement BuildPanelHost()
+    {
+        if (_panelHost is { } cached)
+        {
+            return cached;
+        }
+
+        var theme = _theme!;
+        var tabRow = new StackPanel().Orientation(Orientation.Horizontal).Spacing(4);
+        // 内容槽用单星格而非 StackPanel:垂直栈只给子元素期望高度,视图内容(日志文本框)无法铺满停靠区。
+        _panelContentSlot = new Grid().Rows("*").Columns("*");
+        foreach (var view in _workbench.PanelModel.Views)
+        {
+            var id = view.Id;
+            var button = new Button()
+                .Content(new Label().Text(view.Title).WithTheme((_, l) => l.Foreground(theme.Panel.Foreground)))
+                .CanDrag(false)
+                .BorderThickness(0);
+            button.OnClick(() => _workbench.SelectPanel(id));
+            // 与活动栏按钮同模式:主题切换自动重涂，选中切换由 RefreshPanelHost 重涂。
+            button.WithTheme((_, btn) => btn.Background(PanelButtonBackground(id)));
+            _panelTabButtons[id] = button;
+            tabRow.Add(button);
+        }
+
+        // 页签条占 Auto 行,内容槽占星行吃满剩余高度,让当前视图内容尽量铺满底部面板版面。
+        _panelHost = new Grid().Rows("Auto,*").Columns("*").Children(
+            tabRow.Row(0),
+            _panelContentSlot.Row(1));
+        RefreshPanelHost();
+        return _panelHost;
+    }
+
+    /// <summary>刷新底部页签选中态与内容槽（选中/主题/显隐变更时经 ApplyChromeVisibility 进入）。</summary>
+    private void RefreshPanelHost()
+    {
+        if (_panelHost is null || _panelContentSlot is null)
+        {
+            return;
+        }
+
+        foreach (var (id, button) in _panelTabButtons)
+        {
+            button.Background(PanelButtonBackground(id));
+        }
+
+        _panelContentSlot.Clear();
+        var active = _workbench.ActivePanelId;
+        var view = _workbench.PanelModel.Views.FirstOrDefault(v => v.Id == active)
+            ?? _workbench.PanelModel.Views.FirstOrDefault();
+        if (view is not null)
+        {
+            _panelContentSlot.Add(PaneContent(view.Id, view.Content, WorkbenchZone.Panel));
+        }
+    }
+
+    /// <summary>底部页签按钮背景:选中项为 accent 与区背景按 2:8 回混，其余为区背景（与活动栏同口径）。</summary>
+    private Color PanelButtonBackground(string id) =>
+        id == _workbench.ActivePanelId
+            ? _theme!.Panel.Accent.Lerp(_theme.Panel.Background, 0.8)
+            : _theme!.Panel.Background;
+
     /// <summary>
     /// 标签栏「最大化/恢复」按钮无实际效果(MewDock 最大化未完整接线),关闭模型级 TabSetEnableMaximize
     /// 使 TabSetNode.IsEnableMaximize / CanMaximize 为假,按钮不再渲染。DockingManager 不公开模型引用,
@@ -565,6 +685,76 @@ internal sealed class WorkbenchView
                     : CursorType.SizeWE;
             }
         });
+    }
+
+    /// <summary>
+    /// 底部宿主窗格不显示 MewDock 标题栏（自建顶部页签条已含标题，标题栏纯属重复）。
+    /// 布局就绪与每次布局变更后，把“子项全为面板视图”的 tabset 视图的 _toolCaption 置空并重排：
+    /// 混入其他窗格（如拖入的编辑器文档）时保留标题栏以便辨认。_toolCaption 空安全经反编译确认
+    /// （Arrange/CaptionHeight/SyncSelection/Measure 均为 dup/brtrue 守卫）；版本锁定 0.19.1，升级需重验。
+    /// 与 HideMaximizeButtons 同属 MewDock 内部适配。
+    /// </summary>
+    private void SuppressPanelCaptions(DockingManager docking)
+    {
+        var assembly = typeof(DockingManager).Assembly;
+        if (assembly.GetType("Aprillz.MewUI.MewDock.Controls.FlexTabSetView") is not { } viewType)
+        {
+            return;
+        }
+
+        var tabSetField = viewType.GetField("_tabSet", BindingFlags.NonPublic | BindingFlags.Instance);
+        var captionField = viewType.GetField("_toolCaption", BindingFlags.NonPublic | BindingFlags.Instance);
+        if (tabSetField is null || captionField is null || docking.Children.FirstOrDefault() is not Panel root)
+        {
+            return;
+        }
+
+        var panelIds = new HashSet<string>(_workbench.PanelModel.Views.Select(view => view.Id).Append(PanelHostPaneId));
+        var stack = new Stack<Panel>();
+        stack.Push(root);
+        while (stack.Count > 0)
+        {
+            var panel = stack.Pop();
+            foreach (var child in panel.Children)
+            {
+                if (viewType.IsInstanceOfType(child) && child is Element view
+                    && IsPanelOnlyTabSet(tabSetField.GetValue(child), panelIds)
+                    && captionField.GetValue(child) is not null)
+                {
+                    captionField.SetValue(child, null);
+                    view.InvalidateMeasure();
+                    view.InvalidateArrange();
+                }
+                else if (child is Panel nested)
+                {
+                    stack.Push(nested);
+                }
+            }
+        }
+    }
+
+    private static bool IsPanelOnlyTabSet(object? tabSet, HashSet<string> panelIds)
+    {
+        var children = tabSet?.GetType()
+            .GetProperty("Children", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?
+            .GetValue(tabSet) as System.Collections.IEnumerable;
+        if (children is null)
+        {
+            return false;
+        }
+
+        var ids = new List<string>();
+        foreach (var tab in children)
+        {
+            if (tab.GetType().GetProperty("Component")?.GetValue(tab) is not string component)
+            {
+                return false;
+            }
+
+            ids.Add(component);
+        }
+
+        return ids.Count > 0 && ids.All(panelIds.Contains);
     }
 
     /// <summary>

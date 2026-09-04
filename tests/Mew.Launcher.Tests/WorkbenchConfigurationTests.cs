@@ -30,7 +30,7 @@ public class WorkbenchConfigurationTests
         var sideBarItem = Assert.IsType<MenuItem>(menu.Items[0]);
         var panelItem = Assert.IsType<MenuItem>(menu.Items[1]);
         var sideBarPane = dock.Panes.Single(pane => pane.Component == "launch");
-        var panelPane = dock.Panes.Single(pane => pane.Component == "output");
+        var panelPane = dock.Panes.Single(pane => pane.Component == "panel-host");
 
         sideBarPane.Close();
         panelPane.Close();
@@ -115,17 +115,17 @@ public class WorkbenchConfigurationTests
         var dock = FindByType(shell, typeof(DockingManager)) as DockingManager
             ?? throw new InvalidOperationException("未找到 DockingManager。");
 
-        Assert.Contains(dock.Panes, pane => pane.Component == "output");
+        Assert.Contains(dock.Panes, pane => pane.Component == "panel-host");
 
         workbench.TogglePanel();
 
         Assert.False(workbench.IsPanelVisible);
-        Assert.DoesNotContain(dock.Panes, pane => pane.Component == "output");
+        Assert.DoesNotContain(dock.Panes, pane => pane.Component == "panel-host");
 
         workbench.TogglePanel();
 
         Assert.True(workbench.IsPanelVisible);
-        Assert.Contains(dock.Panes, pane => pane.Component == "output");
+        Assert.Contains(dock.Panes, pane => pane.Component == "panel-host");
     }
 
     [Fact]

@@ -93,6 +93,7 @@ internal sealed class WorkbenchLayoutStore
 internal sealed record WorkbenchPresentationState
 {
     public string? ActiveActivityId { get; init; }
+    public string? ActivePanelId { get; init; }
     public bool? IsActivityBarVisible { get; init; }
     public bool? IsSideBarVisible { get; init; }
     public bool? IsPanelVisible { get; init; }
