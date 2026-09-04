@@ -22,7 +22,6 @@ public sealed class Workbench
     private bool _panelVisible = true;
     private bool _statusBarVisible = true;
     private string? _activeActivityId;
-    private string? _activePanelId;
     private readonly Dictionary<string, DocumentReveal> _documentReveals = [];
 
     /// <summary>工作台呈现状态变更通知;订阅方据此同步区域外观与 View 菜单文案。</summary>
@@ -39,11 +38,6 @@ public sealed class Workbench
     public bool IsPanelVisible => _panelVisible;
     public bool IsStatusBarVisible => _statusBarVisible;
     public string? ActiveActivityId => _activeActivityId;
-
-    /// <summary>当前激活的底部面板视图 id（无视图时为 null）；首项为默认。</summary>
-    public string? ActivePanelId => _panel.Views.Any(view => view.Id == _activePanelId)
-        ? _activePanelId
-        : _panel.Views.FirstOrDefault()?.Id;
 
     /// <summary>当前激活的编辑器文档 id(编辑器区无激活文档时为 null),供应用按激活文档路由键盘操作。</summary>
     public string? ActiveDocumentId =>
@@ -96,18 +90,6 @@ public sealed class Workbench
             _sideBarVisible = true;
         }
 
-        PresentationChanged?.Invoke();
-    }
-
-    /// <summary>选择底部面板视图（未知 id 忽略）；点已激活项保持，不切换显隐。</summary>
-    public void SelectPanel(string id)
-    {
-        if (!_panel.Views.Any(view => view.Id == id) || _activePanelId == id)
-        {
-            return;
-        }
-
-        _activePanelId = id;
         PresentationChanged?.Invoke();
     }
 
@@ -265,9 +247,6 @@ public sealed class Workbench
         _activeActivityId = _activityBar.Items.Any(item => item.Id == state.ActiveActivityId)
             ? state.ActiveActivityId
             : _activityBar.Items.FirstOrDefault()?.Id;
-        _activePanelId = _panel.Views.Any(view => view.Id == state.ActivePanelId)
-            ? state.ActivePanelId
-            : _panel.Views.FirstOrDefault()?.Id;
         // 旧 presentation.json 仅记录侧边栏;缺失的新字段必须保持历史默认值「显示」。
         _activityBarVisible = state.IsActivityBarVisible ?? true;
         _sideBarVisible = state.IsSideBarVisible ?? true;

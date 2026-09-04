@@ -55,10 +55,8 @@ public class HostCompositionTests
         Assert.Contains(dock.Panes, pane => pane.Component == "launch");
         workbench.SelectActivity("todo");
         Assert.Contains(dock.Panes, pane => pane.Component == "todo");
-        // 底部面板收敛为单个宿主窗格（自建顶部页签条），各视图不再是独立窗格
-        Assert.Contains(dock.Panes, pane => pane.Component == "panel-host");
-        Assert.DoesNotContain(dock.Panes, pane => pane.Component == "output");
-        Assert.DoesNotContain(dock.Panes, pane => pane.Component == "todo-output");
+        Assert.Contains(dock.Panes, pane => pane.Component == "output");
+        Assert.Contains(dock.Panes, pane => pane.Component == "todo-output");
 
         // 编辑器文档:运行时打开后两模块文档都挂接
         workbench.OpenDocument("items");

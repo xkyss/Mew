@@ -20,10 +20,6 @@ internal sealed class WorkbenchView
     // 必须解析到同一个实例。MewDock 的 SyncContent 在显式内容与 factory 内容实例不一致时会分离旧内容,
     // 而共享子元素(如设置文档的 StackPanel)的 Parent 仍指向已分离的旧包装,导致其无法重新挂接、tab 空白。
     private readonly Dictionary<string, UIElement> _paneContents = [];
-    // 底部面板宿主窗格 id：多视图收敛为单个工具窗格，自建顶部页签条（VSCode 式）切换视图；
-    // 保留 MewDock 工具窗格标题栏（DockCaption），提供整窗格拖动与右上角 ▾/−/×（Float/Auto Hide/Close）操作；
-    // 标题置空（仅留按钮），避免与自建页签条重复。
-    private const string PanelHostPaneId = "panel-host";
     // 已接线「悬浮显示关闭按钮」的 tab 实例:布局变更重扫时去重,避免重复订阅鼠标事件。
     private readonly HashSet<object> _configuredTabClose = [];
 
@@ -46,21 +42,9 @@ internal sealed class WorkbenchView
             try
             {
                 docking.LoadLayout(savedLayout);
-                // 旧布局把各面板视图存成了独立窗格：关闭后收敛到宿主窗格（单页签条），手动调过的底部高度保留在宿主窗格上。
-                // 历史启动风暴可能攒出多个宿主窗格（一度因此崩溃）：只留首个，其余关闭，下次启动即自愈。
-                foreach (var view in _workbench.PanelModel.Views)
-                {
-                    docking.Panes.FirstOrDefault(pane => pane.Component == view.Id)?.Close();
-                }
-
-                foreach (var extra in docking.Panes.Where(pane => pane.Component == PanelHostPaneId).Skip(1).ToList())
-                {
-                    extra.Close();
-                }
-
-                EnsurePanelHost(docking);
-                // 收敛后立即落盘定稿：不依赖后续布局变更才保存，避免脏布局再被恢复。
-                layoutStore.Save(docking.SaveLayout());
+                // 收敛历史残留：关闭已无对应视图的窗格（如单宿主窗格时代的 panel-host）；
+                // 缺失的当前视图由后续 ApplyChromeVisibility 按显隐状态补回。
+                CloseUnknownPanes(docking);
             }
             catch (Exception ex) when (ex is JsonException or InvalidOperationException or ArgumentException)
             {
@@ -111,7 +95,6 @@ internal sealed class WorkbenchView
             new WorkbenchPresentationState
             {
                 ActiveActivityId = _workbench.ActiveActivityId,
-                ActivePanelId = _workbench.ActivePanelId,
                 IsActivityBarVisible = _workbench.IsActivityBarVisible,
                 IsSideBarVisible = _workbench.IsSideBarVisible,
                 IsPanelVisible = _workbench.IsPanelVisible,
@@ -144,9 +127,11 @@ internal sealed class WorkbenchView
 
             ApplySideBarVisibility();
             ApplyActivitySelection();
-            ConstrictPanelHosts();
-            ApplyToolPane(PanelHostPaneId, "", PaneContent(PanelHostPaneId, BuildPanelHost(), WorkbenchZone.Panel), DockEdge.Bottom, WorkbenchZone.Panel, _workbench.IsPanelVisible);
-            RefreshPanelHost();
+
+            foreach (var panel in _workbench.PanelModel.Views)
+            {
+                ApplyToolPane(panel.Id, panel.Title, panel.Content, DockEdge.Bottom, WorkbenchZone.Panel, _workbench.IsPanelVisible);
+            }
         }
         finally
         {
@@ -199,7 +184,7 @@ internal sealed class WorkbenchView
             ? docking.Panes.Any(pane => pane.Component == sideBar.Id)
             : null;
         bool? panelVisible = _workbench.PanelModel.Views.Count > 0
-            ? docking.Panes.Any(pane => pane.Component == PanelHostPaneId)
+            ? _workbench.PanelModel.Views.Any(view => docking.Panes.Any(pane => pane.Component == view.Id))
             : null;
 
         _workbench.SynchronizeToolPaneVisibility(sideBarVisible, panelVisible);
@@ -390,6 +375,19 @@ internal sealed class WorkbenchView
             );
     }
 
+    /// <summary>关闭恢复出来但已无对应视图的窗格，避免空白残留；Component 为空的不碰。</summary>
+    private void CloseUnknownPanes(DockingManager docking)
+    {
+        var known = new HashSet<string>(
+            _workbench.SideBarModel.Views.Select(view => view.Id)
+                .Concat(_workbench.EditorAreaModel.Documents.Select(document => document.Id))
+                .Concat(_workbench.PanelModel.Views.Select(view => view.Id)));
+        foreach (var pane in docking.Panes.Where(pane => pane.Component is not null && !known.Contains(pane.Component)).ToList())
+        {
+            pane.Close();
+        }
+    }
+
     private void AddDefaultPanes(DockingManager docking, WorkbenchThemeContext theme)
     {
         foreach (var view in _workbench.SideBarModel.Views)
@@ -402,39 +400,9 @@ internal sealed class WorkbenchView
             docking.AddDocumentPane(document.Title, PaneContent(document.Id, document.Content, WorkbenchZone.EditorArea), document.Id);
         }
 
-        EnsurePanelHost(docking);
-    }
-
-    /// <summary>底部面板宿主窗格：单窗格承载全部面板视图（自建顶部页签条切换）。</summary>
-    private void EnsurePanelHost(DockingManager docking)
-    {
-        ConstrictPanelHosts(docking);
-        var existing = docking.Panes.FirstOrDefault(pane => pane.Component == PanelHostPaneId);
-        if (existing is not null)
+        foreach (var view in _workbench.PanelModel.Views)
         {
-            // 恢复的旧窗格带着落盘时的标题（如“面板”）：一律清空，自建页签条已含标题。
-            existing.Title = "";
-            return;
-        }
-
-        docking.AddToolPane("", PaneContent(PanelHostPaneId, BuildPanelHost(), WorkbenchZone.Panel), DockEdge.Bottom, PanelHostPaneId);
-    }
-
-    /// <summary>
-    /// 宿主窗格收敛：只留首个，多余关闭。启动风暴曾攒出多个宿主窗格并因此崩溃
-    /// （陈旧视图点击时模型已无其 tabset），每次应用即收敛，保证稳态唯一。
-    /// </summary>
-    private void ConstrictPanelHosts(DockingManager? docking = null)
-    {
-        var manager = docking ?? _docking;
-        if (manager is null)
-        {
-            return;
-        }
-
-        foreach (var extra in manager.Panes.Where(pane => pane.Component == PanelHostPaneId).Skip(1).ToList())
-        {
-            extra.Close();
+            docking.AddToolPane(view.Title, PaneContent(view.Id, view.Content, WorkbenchZone.Panel), DockEdge.Bottom, view.Id);
         }
     }
 
@@ -443,11 +411,6 @@ internal sealed class WorkbenchView
         if (pane.Component is not { } id)
         {
             return null;
-        }
-
-        if (id == PanelHostPaneId)
-        {
-            return PaneContent(id, BuildPanelHost(), WorkbenchZone.Panel);
         }
 
         foreach (var view in _workbench.SideBarModel.Views)
@@ -558,76 +521,6 @@ internal sealed class WorkbenchView
 
         return button;
     }
-
-    private Grid? _panelHost;
-    private Grid? _panelContentSlot;
-    private readonly Dictionary<string, Button> _panelTabButtons = [];
-
-    /// <summary>
-    /// 底部面板宿主内容:顶部自建页签条 + 当前视图内容。构建一次并缓存（PaneContent 同样缓存，
-    /// 两者同一实例），页签切换只换内容槽子元素与按钮背景，不重建树。
-    /// </summary>
-    private UIElement BuildPanelHost()
-    {
-        if (_panelHost is { } cached)
-        {
-            return cached;
-        }
-
-        var theme = _theme!;
-        var tabRow = new StackPanel().Orientation(Orientation.Horizontal).Spacing(4);
-        // 内容槽用单星格而非 StackPanel:垂直栈只给子元素期望高度,视图内容(日志文本框)无法铺满停靠区。
-        _panelContentSlot = new Grid().Rows("*").Columns("*");
-        foreach (var view in _workbench.PanelModel.Views)
-        {
-            var id = view.Id;
-            var button = new Button()
-                .Content(new Label().Text(view.Title).WithTheme((_, l) => l.Foreground(theme.Panel.Foreground)))
-                .CanDrag(false)
-                .BorderThickness(0);
-            button.OnClick(() => _workbench.SelectPanel(id));
-            // 与活动栏按钮同模式:主题切换自动重涂，选中切换由 RefreshPanelHost 重涂。
-            button.WithTheme((_, btn) => btn.Background(PanelButtonBackground(id)));
-            _panelTabButtons[id] = button;
-            tabRow.Add(button);
-        }
-
-        // 页签条占 Auto 行,内容槽占星行吃满剩余高度,让当前视图内容尽量铺满底部面板版面。
-        _panelHost = new Grid().Rows("Auto,*").Columns("*").Children(
-            tabRow.Row(0),
-            _panelContentSlot.Row(1));
-        RefreshPanelHost();
-        return _panelHost;
-    }
-
-    /// <summary>刷新底部页签选中态与内容槽（选中/主题/显隐变更时经 ApplyChromeVisibility 进入）。</summary>
-    private void RefreshPanelHost()
-    {
-        if (_panelHost is null || _panelContentSlot is null)
-        {
-            return;
-        }
-
-        foreach (var (id, button) in _panelTabButtons)
-        {
-            button.Background(PanelButtonBackground(id));
-        }
-
-        _panelContentSlot.Clear();
-        var active = _workbench.ActivePanelId;
-        var view = _workbench.PanelModel.Views.FirstOrDefault(v => v.Id == active)
-            ?? _workbench.PanelModel.Views.FirstOrDefault();
-        if (view is not null)
-        {
-            _panelContentSlot.Add(PaneContent(view.Id, view.Content, WorkbenchZone.Panel));
-        }
-    }
-
-    /// <summary>底部页签按钮背景:选中项为 accent 与区背景按 2:8 回混，其余为区背景（与活动栏同口径）。</summary>
-    private Color PanelButtonBackground(string id) =>
-        id == _workbench.ActivePanelId
-            ? _theme!.Panel.Accent.Lerp(_theme.Panel.Background, 0.8)
-            : _theme!.Panel.Background;
 
     /// <summary>
     /// 标签栏「最大化/恢复」按钮无实际效果(MewDock 最大化未完整接线),关闭模型级 TabSetEnableMaximize
