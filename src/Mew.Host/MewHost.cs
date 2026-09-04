@@ -80,7 +80,10 @@ internal sealed class MewHost
         new PluginSnapshotStore().Save(full);
         Log($"插件快照已写入：{full.Count} 项");
 
-        // 注册前句柄基线：若 show 前后句柄变化，热键必须绑 show 后的句柄才有效
+        // 首启直接隐藏到托盘：以 0 透明度进入 Run，窗口创建并 show 但全程不可见（消除"一闪而过"）。
+        // 关键：Loaded 里所有初始化（图标/热键/托盘）都必须在仍为 0 透明度时做完，先 Hide 再恢复不透明——
+        // 若先恢复不透明再做初始化，窗口会以可见态跨过若干合成帧才被 Hide，仍是可见闪烁。句柄基线仍取 show 前的句柄。
+        window.Opacity = 0;
         var preShowHandle = window.Handle;
 
         // 托盘与浮层为常驻能力，必须可用
@@ -89,6 +92,7 @@ internal sealed class MewHost
 
         window.Loaded += () =>
         {
+            // 0 透明度期间完成全部初始化：窗口不可见，DWM 不会合成任何一帧
             ApplyWindowIcon(window);
             Log($"热键句柄比对：show前={preShowHandle:X}，当前={window.Handle:X}");
             var overlayHotkeyRegistered = settings.OverlayHotkeyEnabled
@@ -100,12 +104,18 @@ internal sealed class MewHost
             _tray.Add();
             if (!overlayHotkeyRegistered)
             {
-                // 有告警时亮出主窗口，否则首启直接隐藏（提示在隐藏窗口上不可见）
+                // 告警路径：先恢复不透明再亮出（提示在隐藏窗口上不可见）
+                window.Opacity = 1;
                 window.ShowToast($"⚠ 呼出热键 {_overlayHotkey} 注册失败(可能已被其他程序占用)");
                 window.Show(null!);
                 window.Activate();
             }
-            else window.Hide();
+            else
+            {
+                // 正常路径：先 Hide（此时仍 0 透明度，全程无可见帧），再恢复不透明供后续亮出（托盘/告警）
+                window.Hide();
+                window.Opacity = 1;
+            }
         };
 
         window.NativeMessage += args =>
