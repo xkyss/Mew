@@ -12,7 +12,7 @@
 
 ```
 src/Mew.Host/        — 宿主常驻（AOT，托盘/热键/浮层框架/插件发现/IPC 路由）
-src/Mew.PluginHost/  — 扩展主机（JIT，Workbench 五区 + T1/T2 工具模块）
+src/Mew.PluginHost/  — 主界面（JIT，Workbench 五区 + T1/T2 工具模块）
 src/Mew.Workbench/   — 主框架（五区、主题、布局、Overlay 聚合、IPC 契约）
 src/Mew.Launcher/    — 示例工具模块（T1 编译期）
 Mew.slnx             — 4 工程（Host/PluginHost/Workbench/Launcher）+ 2 测试
@@ -28,14 +28,14 @@ dotnet run --project src/Mew.Host/Mew.Host.csproj
 
 `Mew.Host` 启动后直接隐藏到托盘（仅托盘与呼出浮层常驻）：
 
-- 首启不展示主窗口，不拉起扩展主机
-- 托盘左键呼出搜索浮层，右键菜单可打开/重启扩展主机，均不顺手拉起五区
-- 仅经宿主窗口“打开扩展主机”按钮或托盘右键“打开扩展主机”手动拉起
+- 首启不展示主窗口，不拉起主界面
+- 托盘左键呼出搜索浮层，右键菜单可打开/重启主界面，均不顺手拉起五区
+- 仅经宿主窗口“打开主界面”按钮或托盘右键“打开主界面”手动拉起
 - 开发期 fallback 路径：`Host` 会到 `.build/Mew.PluginHost/bin/Debug/net10.0-windows/Mew.PluginHost.exe`
-- 托盘常驻：首启即隐藏，左键呼出/隐藏浮层，右键 `打开扩展主机` / `重启扩展主机` / `退出`，浮层 `Alt+Space` 按一次呼出、再按隐藏；失败告警（热键被占、扩展主机缺失）会亮出主窗口
-- 退出宿主不再终止扩展主机进程；扩展主机退出后仅标记，不自动拉起
+- 托盘常驻：首启即隐藏，左键呼出/隐藏浮层，右键 `打开主界面` / `重启主界面` / `退出`，浮层 `Alt+Space` 按一次呼出、再按隐藏；失败告警（热键被占、主界面缺失）会亮出主窗口
+- 退出宿主不再终止主界面进程；主界面退出后仅标记，不自动拉起
 
-单独调试扩展主机：
+单独调试主界面：
 
 ```bash
 dotnet run --project src/Mew.PluginHost/Mew.PluginHost.csproj
@@ -53,7 +53,7 @@ dotnet publish src/Mew.PluginHost -c Release -r win-x64 -o publish
 # publish/Mew.PluginHost.exe — JIT，可加载 DLL 插件
 ```
 
-单 AOT 回退：仅分发 `Mew.Host.exe` 时，`T2`（`type=dll`）插件在 `设置 → 插件` 置灰并提示“需 JIT 扩展主机”，`T3`（`type=exe`）仍可用。
+单 AOT 回退：仅分发 `Mew.Host.exe` 时，`T2`（`type=dll`）插件在 `设置 → 插件` 置灰并提示“需 JIT 主界面”，`T3`（`type=exe`）仍可用。
 
 ## 插件放置
 
@@ -70,7 +70,7 @@ dotnet publish src/Mew.PluginHost -c Release -r win-x64 -o publish
 1. **设置页**：`设置 → 插件 → 插件目录`，完整可配置的目录列表，第一项为默认目录：每行可 `设为默认`/
    `删除`，底部输入框可添加（单插件目录或 `<id>/` 根目录均可）。落盘于 `settings.json` 根节
    `pluginDirs`；列表为空/缺省时回退到用户目录（`%APPDATA%\Mew\Plugins`）；`安装目录`
-   （`<exe-dir>\Plugins`）随包内置、恒为末尾。目录增减需重启宿主（刷新快照）与扩展主机（加载 DLL）
+   （`<exe-dir>\Plugins`）随包内置、恒为末尾。目录增减需重启宿主（刷新快照）与主界面（加载 DLL）
    生效，不存在的目录会被忽略并标出。
 2. **环境变量** `MEW_PLUGINS_EXTRA`（多目录用 `;` Windows / `:` Linux 分隔，`Path.PathSeparator`），
    宿主启动时并入扫描并记入 `host.log`。额外目录支持两种形态：
@@ -82,7 +82,7 @@ $env:MEW_PLUGINS_EXTRA="D:\code\Mxd\.build\Mxd.UI\bin\Debug\net10.0-windows"
 $env:MEW_PLUGINS_EXTRA="D:\dev-plugins"
 ```
 
-指向构建输出时：改代码后只需 `dotnet build` + 重启扩展主机（T2 的 ALC 限制），无需复制、无需重启宿主
+指向构建输出时：改代码后只需 `dotnet build` + 重启主界面（T2 的 ALC 限制），无需复制、无需重启宿主
 （首次指向新目录需重启宿主以刷新快照）。
 
 `plugin.json` 最小示例（`T3` 独立进程）：
@@ -121,14 +121,14 @@ $env:MEW_PLUGINS_EXTRA="D:\dev-plugins"
 
 字段约束：`id` 为 `kebab-case` 且全局唯一，`version` 为 `semver`，`protocolVersion` 须为 `1`（不匹配时校验失败并提示“请更新插件/宿主”），`capabilities` 未声明的能力越权注册会被拒绝，`id` 重复时后发现者拒绝。
 
-启用态（宿主为唯一来源，扩展主机按单加载）：
+启用态（宿主为唯一来源，主界面按单加载）：
 
 ```
 %APPDATA%\Mew\plugins.json          # { "clipboard-history": true, "todo-dll": false }，默认启用
-%APPDATA%\Mew\plugin-snapshot.json   # 宿主扫描后写入的全量名单快照（扩展主机优先按此加载）
+%APPDATA%\Mew\plugin-snapshot.json   # 宿主扫描后写入的全量名单快照（主界面优先按此加载）
 ```
 
-`T2` 启用/禁用需 `设置 → 插件 → 退出扩展主机进程` 后再经宿主托盘手动打开（ALC 卸载限制）；`T3` 无需重启宿主，重启插件进程即可。扩展主机不在插件列表中，不提供禁用。
+`T2` 启用/禁用需 `设置 → 插件 → 退出主界面进程` 后再经宿主托盘手动打开（ALC 卸载限制）；`T3` 无需重启宿主，重启插件进程即可。主界面不在插件列表中，不提供禁用。
 
 五区视图命名约束（底部面板页签等）：标题必须带模块前缀（如 `指令台输出`，`id` 如 `mxd-output` 全局唯一），
 不得使用通用名（`输出` 为 Launcher 历史遗留首占，后来者一律前缀）；`id` 冲突后注册者拒绝，标题重名仅靠约定避免。
@@ -139,10 +139,10 @@ $env:MEW_PLUGINS_EXTRA="D:\dev-plugins"
 ```
 %APPDATA%\Mew\settings.json   # 根节 themeMode/overlayHotkey + 模块节（按插件 id 分）
 %APPDATA%\Mew\layout.json     # Workbench 布局（含 settings 文档迁移）
-%APPDATA%\Mew\host.log        # 呼出热键注册结果、插件目录与快照项数、扩展主机拉起/退出、插件崩溃/断开、ping/pong 可观测
-%APPDATA%\Mew\plugin-host.log  # 扩展主机启动与未处理异常（崩溃排障先看它），另含插件来源（快照/本地扫描）与每个插件的
+%APPDATA%\Mew\host.log        # 呼出热键注册结果、插件目录与快照项数、主界面拉起/退出、插件崩溃/断开、ping/pong 可观测
+%APPDATA%\Mew\plugin-host.log  # 主界面启动与未处理异常（崩溃排障先看它），另含插件来源（快照/本地扫描）与每个插件的
                               # 生命周期：加载成功（DLL 路径/大小/写入时间 → 模块类型）/ 未加载（原因）/ 跳过（exe 由宿主管理）；
-                              # 同源内容亦展示于扩展主机底部面板「插件日志」视图（行内文本框，可选中复制）
+                              # 同源内容亦展示于主界面底部面板「插件日志」视图（行内文本框，可选中复制）
 ```
 
 设置入口：`设置 → 外观 / 热键 / 插件 / 数据（Launcher）`，插件列表显示 `已启用/已禁用/清单错误/ID 重复/需 JIT/已崩溃`，清单错误仅影响该插件。
@@ -167,7 +167,7 @@ dotnet test Mew.slnx
 
 ## 常见问题
 
-- **扩展主机未启动**：经宿主窗口“打开扩展主机”按钮或托盘右键“打开扩展主机”手动拉起；先 `dotnet build Mew.slnx` 构建整个方案（单跑宿主不会连带构建扩展主机），再确认 `Mew.PluginHost.exe` 与 `Mew.Host.exe` 同目录，或已生成 `.build` fallback；点按钮无反应时看弹窗提示，详查 `host.log`
+- **主界面未启动**：经宿主窗口“打开主界面”按钮或托盘右键“打开主界面”手动拉起；先 `dotnet build Mew.slnx` 构建整个方案（单跑宿主不会连带构建主界面），再确认 `Mew.PluginHost.exe` 与 `Mew.Host.exe` 同目录，或已生成 `.build` fallback；点按钮无反应时看弹窗提示，详查 `host.log`
 - **DLL 插件置灰**：仅分发了 AOT 单文件，需补 `Mew.PluginHost.exe`（JIT）
 - **构建输出直接当插件目录**：支持，`entry.path` 钉死入口 DLL，同目录其他 DLL 仅作依赖探测；入口内多个模块实现时按清单 `id` 精确匹配（无匹配/多匹配均在设置页报错）；`runtimes/<rid>/native` 下的 native 库自动探测；目录自带的 `Mew.Workbench.dll` / `Aprillz.MewUI.*` 副本恒被忽略（宿主契约走 Default 单例，否则跨边界类型双份导致加载失败）
 - **清单标红**：检查 `id` 重复、`version` 非 semver、`entry.path` 与 `type` 不匹配、`protocolVersion != 1`

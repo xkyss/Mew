@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 namespace Mew.Workbench;
 
 /// <summary>
-/// 托盘常驻图标:首启即隐藏，仅留托盘与全局热键;左键呼出浮层，右键菜单打开/重启扩展主机或退出。
+/// 托盘常驻图标:首启即隐藏，仅留托盘与全局热键;左键呼出浮层，右键菜单打开/重启主界面或退出。
 /// 回调消息(WM_APP)经主窗口 NativeMessage 路由，隐藏期间全局热键照常。
 /// </summary>
 public sealed class TrayIcon : IDisposable
@@ -49,8 +49,8 @@ public sealed class TrayIcon : IDisposable
         };
 
         _menu = CreatePopupMenu();
-        AppendMenu(_menu, 0, (UIntPtr)MenuOpenWorkspace, "打开扩展主机");
-        AppendMenu(_menu, 0, (UIntPtr)MenuRestartWorkspace, "重启扩展主机");
+        AppendMenu(_menu, 0, (UIntPtr)MenuOpenWorkspace, "打开主界面");
+        AppendMenu(_menu, 0, (UIntPtr)MenuRestartWorkspace, "重启主界面");
         AppendMenu(_menu, 0, (UIntPtr)MenuQuit, "退出");
     }
 

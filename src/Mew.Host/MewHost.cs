@@ -131,9 +131,9 @@ internal sealed class MewHost
     {
         return new StackPanel().Padding(24).Spacing(12).Children(
             new Label().Text("Mew Host (AOT 常驻)").FontSize(16).Bold().WithTheme((_, l) => l.Foreground(_theme.EditorArea.Foreground)),
-            new Label().Text($"版本 {AppVersion}  — 托盘与呼出浮层由宿主常驻，五区未启动，可手动打开扩展主机。").FontSize(12).WithTheme((_, l) => l.Foreground(_theme.EditorArea.Foreground)),
-            new Button().Content(new Label().Text("打开扩展主机")).CanDrag(false).OnClick(() => EnsurePluginHostRunning()),
-            new Button().Content(new Label().Text("重启扩展主机")).CanDrag(false).OnClick(() => RestartPluginHost())
+            new Label().Text($"版本 {AppVersion}  — 托盘与呼出浮层由宿主常驻，五区未启动，可手动打开主界面。").FontSize(12).WithTheme((_, l) => l.Foreground(_theme.EditorArea.Foreground)),
+            new Button().Content(new Label().Text("打开主界面")).CanDrag(false).OnClick(() => EnsurePluginHostRunning()),
+            new Button().Content(new Label().Text("重启主界面")).CanDrag(false).OnClick(() => RestartPluginHost())
         );
     }
 
@@ -151,7 +151,7 @@ internal sealed class MewHost
         }
         if (!File.Exists(exe))
         {
-            Warn($"扩展主机缺失：{exe}（请先构建整个方案）");
+            Warn($"主界面缺失：{exe}（请先构建整个方案）");
             return;
         }
         try
@@ -163,12 +163,12 @@ internal sealed class MewHost
                 proc.EnableRaisingEvents = true;
                 proc.Exited += OnPluginHostExited;
                 _pluginHostProcess = proc;
-                Log($"扩展主机已拉起 pid={proc.Id}");
+                Log($"主界面已拉起 pid={proc.Id}");
             }
         }
         catch (Exception ex)
         {
-            Warn($"扩展主机拉起失败：{ex.Message}");
+            Warn($"主界面拉起失败：{ex.Message}");
         }
     }
 
@@ -183,7 +183,7 @@ internal sealed class MewHost
     private void OnPluginHostExited(object? sender, EventArgs e)
     {
         var proc = sender as Process;
-        Log($"扩展主机退出 pid={proc?.Id} code={proc?.ExitCode}");
+        Log($"主界面退出 pid={proc?.Id} code={proc?.ExitCode}");
         // 仅标记不自愈：托盘与浮层仍可用，需用户手动重新打开；IPC 断开路径另行标已崩溃
         _pluginHostProcess = null;
     }

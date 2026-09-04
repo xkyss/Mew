@@ -406,7 +406,7 @@ internal sealed class PluginHostApp
         });
         _pluginPanel.Add(new StackPanel().Orientation(Orientation.Horizontal).Spacing(8).Children(input, addButton));
         _pluginPanel.Add(feedback);
-        _pluginPanel.Add(new Label().Text("至少保留一项，第一项为默认目录，重复 id 以靠前的目录为准；增减后需重启宿主（刷新快照）与扩展主机（加载 DLL）；不存在的目录会被忽略").FontSize(11).WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground)));
+        _pluginPanel.Add(new Label().Text("至少保留一项，第一项为默认目录，重复 id 以靠前的目录为准；增减后需重启宿主（刷新快照）与主界面（加载 DLL）；不存在的目录会被忽略").FontSize(11).WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground)));
 
         void AddEditableDirRow(List<string> list, int index)
         {
@@ -586,8 +586,8 @@ internal sealed class PluginHostApp
         if (hasDll)
         {
             _pluginPanel.Add(new StackPanel().Orientation(Orientation.Horizontal).Spacing(8).Children(
-                new Label().Text("DLL 插件变更需重启扩展主机（先退出进程，再经宿主托盘手动打开）").FontSize(11).WithTheme((_, l) => l.Foreground(ShellIcons.HotkeyWarning)),
-                new Button().Content(new Label().Text("退出扩展主机进程")).CanDrag(false).OnClick(() => { _window.Close(); Environment.Exit(0); })
+                new Label().Text("DLL 插件变更需重启主界面（先退出进程，再经托盘手动打开）").FontSize(11).WithTheme((_, l) => l.Foreground(ShellIcons.HotkeyWarning)),
+                new Button().Content(new Label().Text("退出主界面进程")).CanDrag(false).OnClick(() => { _window.Close(); Environment.Exit(0); })
             ));
         }
         const bool isJitAvailable = true; // 扩展主机本身为 JIT，DLL 可加载

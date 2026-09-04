@@ -10,7 +10,7 @@ AppDomain.CurrentDomain.UnhandledException += (_, e) =>
     PluginHostLog.Write($"未处理异常：{e.ExceptionObject}");
 };
 
-PluginHostLog.Write("扩展主机启动");
+PluginHostLog.Write("主界面启动");
 
 var app = new PluginHostApp();
 app.Run();
