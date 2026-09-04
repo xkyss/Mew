@@ -82,6 +82,7 @@ internal sealed class MewHost
         _discoveredPlugins = PluginDiscovery.FilterExeLoadable(full, _pluginEnables);
         // 全量名单写入快照：扩展主机按单加载，不再自扫（快照缺失回退本地扫描）
         new PluginSnapshotStore().Save(full);
+        Log($"插件快照已写入：{full.Count} 项");
 
         // 注册前句柄基线：若 show 前后句柄变化，热键必须绑 show 后的句柄才有效
         var preShowHandle = window.Handle;

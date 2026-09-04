@@ -130,13 +130,16 @@ $env:MEW_PLUGINS_EXTRA="D:\dev-plugins"
 
 `T2` 启用/禁用需 `设置 → 插件 → 退出扩展主机进程` 后再经宿主托盘手动打开（ALC 卸载限制）；`T3` 无需重启宿主，重启插件进程即可。扩展主机不在插件列表中，不提供禁用。
 
+
 ## 设置与日志
 
 ```
 %APPDATA%\Mew\settings.json   # 根节 themeMode/overlayHotkey + 模块节（按插件 id 分）
 %APPDATA%\Mew\layout.json     # Workbench 布局（含 settings 文档迁移）
-%APPDATA%\Mew\host.log        # 呼出热键注册结果、扩展主机拉起/退出、插件崩溃/断开、ping/pong 可观测
-%APPDATA%\Mew\plugin-host.log  # 扩展主机启动与未处理异常（崩溃排障先看它）
+%APPDATA%\Mew\host.log        # 呼出热键注册结果、插件目录与快照项数、扩展主机拉起/退出、插件崩溃/断开、ping/pong 可观测
+%APPDATA%\Mew\plugin-host.log  # 扩展主机启动与未处理异常（崩溃排障先看它），另含插件来源（快照/本地扫描）与每个插件的
+                              # 生命周期：加载成功（DLL 路径/大小/写入时间 → 模块类型）/ 未加载（原因）/ 跳过（exe 由宿主管理）；
+                              # 同源内容亦展示于扩展主机底部面板「插件日志」视图（行内文本框，可选中复制）
 ```
 
 设置入口：`设置 → 外观 / 热键 / 插件 / 数据（Launcher）`，插件列表显示 `已启用/已禁用/清单错误/ID 重复/需 JIT/已崩溃`，清单错误仅影响该插件。

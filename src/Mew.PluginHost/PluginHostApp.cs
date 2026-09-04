@@ -80,7 +80,11 @@ internal sealed class PluginHostApp
         var fromSnapshot = new PluginSnapshotStore().Load();
         _discoveredPlugins = fromSnapshot.Count > 0
             ? fromSnapshot
-            : new PluginDiscovery().Discover(userPluginsDir, installPluginsDir);
+            : new PluginDiscovery().Discover(PluginDiscovery.ResolvePluginRoots(_settings.PluginDirs, userPluginsDir, installPluginsDir));
+
+        PluginHostLog.Write(fromSnapshot.Count > 0
+            ? $"插件来源：宿主快照（{fromSnapshot.Count} 项）"
+            : $"插件来源：本地扫描（快照缺失/损坏，回退；根={string.Join("；", PluginDiscovery.ResolvePluginRoots(_settings.PluginDirs, userPluginsDir, installPluginsDir))})");
 
         workbench.Theme(tc => tc.SetMode(LoadThemeMode()).SetAccent(Accent.Blue));
 
@@ -88,7 +92,16 @@ internal sealed class PluginHostApp
         settingsSections.Add("plugins", "插件", BuildPluginPanel);
 
         // 组合根：编译期模块（T1）
-        AddModule(new LauncherModule());
+        try
+        {
+            AddModule(new LauncherModule());
+            PluginHostLog.Write("内置模块 launcher：Configure 成功");
+        }
+        catch (Exception ex)
+        {
+            PluginHostLog.Write($"内置模块 launcher：Configure 失败：{ex.Message}");
+            throw;
+        }
 
         // T2 DLL 运行时加载（按目录 ALC 隔离）
         _dllLoader = new PluginDllLoader();
@@ -98,6 +111,7 @@ internal sealed class PluginHostApp
             var capturingOverlay = new CapturingOverlay(overlay);
             return new ToolModuleContext(workbench, window.Handle, window, hotkeys, settings, capturingOverlay, theme, settingsSections);
         });
+        LogPluginLifecycles();
         // 将捕获的源通过管道注册到宿主（内存直连模式下 _ipcServer 为空则走管道）
         foreach (var src in CapturingOverlay.Captured.ToList())
         {
@@ -123,6 +137,9 @@ internal sealed class PluginHostApp
 
         // 内部插件：五区本身视为首个内部插件的占位描述（与外部插件同等可见）
         // 实际五区贡献已由各模块完成，此处仅为清单语义保留
+
+        // 底部面板「插件日志」：内存环中的启动期生命周期（与 plugin-host.log 同源）
+        workbench.Panel(panel => panel.View("plugin-log", "插件日志", BuildLogPanel()));
 
         // 宿主贡献：设置上下文（活动栏/侧边栏/编辑器文档），设置节 = 外观 + 模块节
         workbench
@@ -172,6 +189,53 @@ internal sealed class PluginHostApp
     }
 
     private void AddModule(IMewToolModule module) => module.Configure(_context);
+
+    /// <summary>底部面板「插件日志」视图：与 plugin-host.log 同源的启动期生命周期快照；整块只读多行文本，拖选复制。</summary>
+    private UIElement BuildLogPanel()
+    {
+        var text = string.Join("\n", PluginHostLog.SnapshotLines().Select(line => $"{line.Time:HH:mm:ss}  {line.Message}"));
+        return new MultiLineTextBox { Text = text, CanDrag = false, IsReadOnly = true, BorderThickness = 0, Wrap = true }.FontSize(12);
+    }
+
+    /// <summary>插件生命周期日志：每个发现项的去向（加载成功/跳过/失败原因），成功项附 DLL 路径、大小、写入时间与模块类型，
+    /// 便于确认实际加载的是哪一次构建的产物。</summary>
+    private void LogPluginLifecycles()
+    {
+        foreach (var desc in _discoveredPlugins.Where(d => !PluginDiscovery.IsReservedHostId(d.Id)))
+        {
+            var result = _dllLoadResults.FirstOrDefault(r => string.Equals(r.Descriptor.Id, desc.Id, StringComparison.OrdinalIgnoreCase));
+            if (result is null)
+            {
+                PluginHostLog.Write($"插件 {desc.Id}：跳过（独立进程插件，由宿主管理）");
+                continue;
+            }
+            if (!result.Success)
+            {
+                PluginHostLog.Write($"插件 {desc.Id}：未加载（{result.Error}）");
+                continue;
+            }
+            var loaded = _dllLoader?.Loaded.FirstOrDefault(x => string.Equals(x.Descriptor.Id, desc.Id, StringComparison.OrdinalIgnoreCase));
+            var dllInfo = DescribeDll(desc);
+            PluginHostLog.Write($"插件 {desc.Id}：加载成功（{dllInfo} → {loaded?.Module.GetType().FullName}，Configure 成功）");
+        }
+    }
+
+    private static string DescribeDll(PluginDescriptor desc)
+    {
+        try
+        {
+            var pluginDir = Path.GetDirectoryName(desc.ManifestPath);
+            if (pluginDir is null) return $"清单 {desc.ManifestPath}（目录未知）";
+            var dllPath = Path.Combine(pluginDir, desc.Manifest.Entry.Path);
+            var info = new FileInfo(dllPath);
+            if (!info.Exists) return $"{dllPath}（不存在）";
+            return $"{dllPath}（{info.Length} 字节，写入 {info.LastWriteTime:yyyy-MM-dd HH:mm:ss}）";
+        }
+        catch (Exception ex)
+        {
+            return $"{desc.ManifestPath}（不可访问：{ex.Message}）";
+        }
+    }
 
     private void CycleTheme()
     {
