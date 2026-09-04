@@ -27,7 +27,7 @@ public sealed class PluginDllLoader
         || (assemblyName is not null && assemblyName.StartsWith("Aprillz.MewUI", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>入口程序集内解析模块：唯一实现直接用；多个实现时按清单 id 精确匹配（构建输出混入多个模块时的确定性选择）。
-    /// 返回模块或错误描述；调用方负责在失败时卸载 ALC。</summary>
+    /// 返回模块或错误描述；调用方负责在失败时释放 ALC（回收/释放措辞见 ADR-000203）。</summary>
     private static (IMewToolModule? Module, string? Error) ResolveModule(Assembly asm, PluginDescriptor desc)
     {
         List<Type> candidates;
