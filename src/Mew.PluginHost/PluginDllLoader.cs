@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Runtime.Loader;
 using Mew.Workbench;
 using Mew.Workbench.Plugins;
@@ -19,6 +20,58 @@ public sealed class PluginDllLoader
         get { lock (_lock) return _loaded.Select(x => (x.Descriptor, x.Module)).ToList(); }
     }
 
+    /// <summary>宿主契约程序集判定：Mew.Workbench 与 Aprillz.MewUI.* 恒由 Default 提供（跨边界类型同一）。
+    /// 其余依赖仍插件目录优先，保证各插件版本隔离。</summary>
+    public static bool IsSharedContractAssembly(string? assemblyName) =>
+        string.Equals(assemblyName, "Mew.Workbench", StringComparison.OrdinalIgnoreCase)
+        || (assemblyName is not null && assemblyName.StartsWith("Aprillz.MewUI", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>入口程序集内解析模块：唯一实现直接用；多个实现时按清单 id 精确匹配（构建输出混入多个模块时的确定性选择）。
+    /// 返回模块或错误描述；调用方负责在失败时卸载 ALC。</summary>
+    private static (IMewToolModule? Module, string? Error) ResolveModule(Assembly asm, PluginDescriptor desc)
+    {
+        List<Type> candidates;
+        try
+        {
+            candidates = asm.GetTypes()
+                .Where(t => typeof(IMewToolModule).IsAssignableFrom(t) && !t.IsAbstract && !t.IsInterface)
+                .ToList();
+        }
+        catch (ReflectionTypeLoadException ex)
+        {
+            var loaderErrors = string.Join("; ", ex.LoaderExceptions.Select(e => e?.Message).Where(m => m is not null).Distinct());
+            return (null, $"入口程序集类型扫描失败：{loaderErrors}");
+        }
+
+        if (candidates.Count == 0)
+            return (null, "未找到 IMewToolModule 实现");
+
+        if (candidates.Count == 1)
+        {
+            var single = (IMewToolModule)Activator.CreateInstance(candidates[0])!;
+            if (!string.Equals(single.Id, desc.Id, StringComparison.OrdinalIgnoreCase))
+                return (null, $"模块 Id 与清单不一致：{single.Id} != {desc.Id}");
+            return (single, null);
+        }
+
+        // 多个实现：逐个实例化按清单 id 匹配
+        var matching = new List<IMewToolModule>();
+        foreach (var type in candidates)
+        {
+            IMewToolModule instance;
+            try { instance = (IMewToolModule)Activator.CreateInstance(type)!; }
+            catch (Exception ex) { return (null, $"候选模块 {type.FullName} 实例化失败：{ex.Message}"); }
+            if (string.Equals(instance.Id, desc.Id, StringComparison.OrdinalIgnoreCase))
+                matching.Add(instance);
+        }
+        if (matching.Count == 0)
+            return (null, $"入口程序集含 {candidates.Count} 个 IMewToolModule 实现，均与清单 id 不一致：" +
+                string.Join("、", candidates.Select(t => t.FullName)));
+        if (matching.Count > 1)
+            return (null, $"入口程序集含多个与清单 id 一致的实现，无法确定：" +
+                string.Join("、", matching.Select(m => m.GetType().FullName)));
+        return (matching[0], null);
+    }
     /// <summary>
     /// 扫描已发现的清单，结合启用态，加载所有 type=dll 且有效且启用的插件。
     /// 返回加载结果（含错误描述），调用方据此刷新设置面板。
@@ -46,25 +99,18 @@ public sealed class PluginDllLoader
             try
             {
                 var alc = new PluginLoadContext(pluginDir, desc.Id);
+                alc.ResolvingUnmanagedDll += (assembly, name) => NativeProbe.ResolveUnmanaged(pluginDir, name);
                 var asm = alc.LoadFromAssemblyPath(dllPath);
-                var moduleType = asm.GetTypes().FirstOrDefault(t => typeof(IMewToolModule).IsAssignableFrom(t) && !t.IsAbstract);
-                if (moduleType == null)
+                var (module, resolveError) = ResolveModule(asm, desc);
+                if (resolveError is not null)
                 {
                     alc.Unload();
-                    results.Add(new PluginLoadResult(desc, false, "未找到 IMewToolModule 实现"));
-                    continue;
-                }
-                var module = (IMewToolModule)Activator.CreateInstance(moduleType)!;
-                // 校验清单与模块 Id 一致性（可选）
-                if (!string.Equals(module.Id, desc.Id, StringComparison.OrdinalIgnoreCase))
-                {
-                    alc.Unload();
-                    results.Add(new PluginLoadResult(desc, false, $"模块 Id 与清单不一致：{module.Id} != {desc.Id}"));
+                    results.Add(new PluginLoadResult(desc, false, resolveError));
                     continue;
                 }
                 // 权限越权：若清单未声明 search 但模块尝试注册 search，将在 IpcServer 层拒绝；此处先按清单 capabilities 预检
                 var ctx = contextFactory();
-                module.Configure(ctx);
+                module!.Configure(ctx);
                 lock (_lock) _loaded.Add((desc, alc, module));
                 results.Add(new PluginLoadResult(desc, true, null));
             }
@@ -111,9 +157,34 @@ internal sealed class PluginLoadContext : AssemblyLoadContext
 
     protected override Assembly? Load(AssemblyName assemblyName)
     {
+        // 宿主契约恒走 Default 单例：插件目录自带的 Workbench/MewUI 副本绝不装入本 ALC，
+        // 否则跨边界类型（IMewToolModule、UI 元素）出现两份运行时类型，IsAssignableFrom 全灭。
+        if (PluginDllLoader.IsSharedContractAssembly(assemblyName.Name))
+            return null;
         var path = Path.Combine(_pluginDir, assemblyName.Name + ".dll");
         if (File.Exists(path))
             return LoadFromAssemblyPath(path);
-        return null; // 回退至 Default（共享契约如 Mew.Workbench）
+        return null; // 回退至 Default
+    }
+}
+
+/// <summary>插件非托管依赖探测：插件目录根 + `runtimes/&lt;rid&gt;/native`（构建输出自带 native 库时免装运行时）。</summary>
+public static class NativeProbe
+{
+    public static IntPtr ResolveUnmanaged(string pluginDir, string name)
+    {
+        foreach (var dir in new[] { pluginDir, Path.Combine(pluginDir, "runtimes", RuntimeInformation.RuntimeIdentifier, "native") })
+        {
+            foreach (var ext in new[] { ".dll", ".so", ".dylib" })
+            {
+                var path = Path.Combine(dir, name + ext);
+                if (File.Exists(path))
+                {
+                    try { return NativeLibrary.Load(path); }
+                    catch { /* 损坏的 native 库交由运行时报缺失 */ }
+                }
+            }
+        }
+        return IntPtr.Zero;
     }
 }

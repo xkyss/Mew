@@ -161,5 +161,6 @@ dotnet test Mew.slnx
 
 - **扩展主机未启动**：经宿主窗口“打开扩展主机”按钮或托盘右键“打开扩展主机”手动拉起；先 `dotnet build Mew.slnx` 构建整个方案（单跑宿主不会连带构建扩展主机），再确认 `Mew.PluginHost.exe` 与 `Mew.Host.exe` 同目录，或已生成 `.build` fallback；点按钮无反应时看弹窗提示，详查 `host.log`
 - **DLL 插件置灰**：仅分发了 AOT 单文件，需补 `Mew.PluginHost.exe`（JIT）
+- **构建输出直接当插件目录**：支持，`entry.path` 钉死入口 DLL，同目录其他 DLL 仅作依赖探测；入口内多个模块实现时按清单 `id` 精确匹配（无匹配/多匹配均在设置页报错）；`runtimes/<rid>/native` 下的 native 库自动探测；目录自带的 `Mew.Workbench.dll` / `Aprillz.MewUI.*` 副本恒被忽略（宿主契约走 Default 单例，否则跨边界类型双份导致加载失败）
 - **清单标红**：检查 `id` 重复、`version` 非 semver、`entry.path` 与 `type` 不匹配、`protocolVersion != 1`
 - **热键注册失败**：已被其他程序占用或与已注册热键冲突，设置页会点名占用方
