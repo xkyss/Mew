@@ -114,7 +114,7 @@ public sealed class PluginDiscovery
         || string.Equals(id, "mew-plugin-host", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// 是否属扩展主机（T1/T2）管辖：排除保留容器与 exe 行（T3 独立进程由宿主管理，ADR-000202/000203）。
+    /// 是否属扩展主机（T2 DLL 插件）管辖：排除保留容器与 exe 行（T3 独立进程由宿主管理，ADR-000202/000203）。
     /// 扩展主机设置→插件列表以此过滤；宿主侧反之只列 exe 行。
     /// </summary>
     public static bool IsExtensionHostManaged(PluginDescriptor desc) =>
