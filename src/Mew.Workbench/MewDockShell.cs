@@ -30,9 +30,9 @@ public sealed class MewDockShell
     /// </summary>
     public void Tune()
     {
-        if (!_zoneStylesApplied)
+        // 子树未就绪(空布局/全关)时注册不了,守卫不置位,首个 Changed 重试——与票据承诺一致
+        if (!_zoneStylesApplied && DisableDockZoneBorders())
         {
-            DisableDockZoneBorders();
             _zoneStylesApplied = true;
         }
         DisableTabSetMaximize();
@@ -70,9 +70,10 @@ public sealed class MewDockShell
     public static void PruneGroupMenu(ContextMenu menu)
     {
         var redundant = RedundantGroupMenuTexts();
+        var kept = PruneGroupMenuTexts(menu.Items.OfType<MenuItem>().Select(item => item.Text).ToList(), redundant);
         foreach (var entry in menu.Items.ToList())
         {
-            if (entry is MenuItem item && redundant.Contains(item.Text))
+            if (entry is MenuItem item && !kept.Contains(item.Text))
             {
                 menu.Items.Remove(entry);
             }
@@ -97,16 +98,24 @@ public sealed class MewDockShell
             && m.GetParameters() is [{ ParameterType: var p }] && p == typeof(Style))
         ?? throw new MissingMethodException(nameof(StyleSheet), nameof(StyleSheet.Define));
 
+    /// <summary>DockingManager 不公开模型引用,按私有字段 _model 反射获取(首次布局前为 null)。</summary>
+    private object? TryGetModel() => typeof(DockingManager)
+        .GetField("_model", BindingFlags.NonPublic | BindingFlags.Instance)
+        ?.GetValue(_docking);
+
+    private UIElement? TryGetRoot() => _docking.Children.FirstOrDefault() as UIElement;
+
     /// <summary>
     /// MewDock 内置 DockStyles 给 tabset / 侧边栏 / Tab 按钮画边框(默认 ControlBorder,焦点时 ControlBorder→Accent 75% 混合)。
     /// 五个工作台区按设计不显示边框:FlexLayoutView 的 StyleSheet 按类型注册 rule 且 GetByType 从后往前匹配——
     /// 向其中追加覆盖 rule 即可关闭边框。目标控件类型在 MewDock 中是 internal,无法静态引用,故经反射按名解析类型。
+    /// 子树未就绪(尚无带 StyleSheet 的根)时返回 false,守卫不置位、下次 Tune 重试。
     /// </summary>
-    private void DisableDockZoneBorders()
+    private bool DisableDockZoneBorders()
     {
-        if (_docking.Children.FirstOrDefault() is not FrameworkElement { StyleSheet: { } sheet })
+        if (TryGetRoot() is not FrameworkElement { StyleSheet: { } sheet })
         {
-            return;
+            return false;
         }
 
         var assembly = typeof(DockingManager).Assembly;
@@ -114,6 +123,7 @@ public sealed class MewDockShell
         OverrideStyle(assembly, sheet, "Aprillz.MewUI.MewDock.Extended.ExtendedBorderBar", CreateBorderlessBorderBarStyle);
         OverrideStyle(assembly, sheet, "Aprillz.MewUI.MewDock.Controls.FlexTabButton", CreateBorderlessTabButtonStyle);
         OverrideStyle(assembly, sheet, "Aprillz.MewUI.MewDock.Controls.FlexSplitter", CreateThinSplitterStyle);
+        return true;
     }
 
     /// <summary>
@@ -216,10 +226,8 @@ public sealed class MewDockShell
     /// </summary>
     private void DisableTabSetMaximize()
     {
-        var model = typeof(DockingManager)
-            .GetField("_model", BindingFlags.NonPublic | BindingFlags.Instance)
-            ?.GetValue(_docking);
-        model?.GetType()
+        if (TryGetModel() is not { } model) return;
+        model.GetType()
             .GetProperty("TabSetEnableMaximize")
             ?.SetValue(model, false);
     }
@@ -232,10 +240,8 @@ public sealed class MewDockShell
     /// </summary>
     private void ThinDockSplitters()
     {
-        var model = typeof(DockingManager)
-            .GetField("_model", BindingFlags.NonPublic | BindingFlags.Instance)
-            ?.GetValue(_docking);
-        model?.GetType()
+        if (TryGetModel() is not { } model) return;
+        model.GetType()
             .GetProperty("SplitterSize")
             ?.SetValue(model, 3.0);
     }
@@ -254,7 +260,7 @@ public sealed class MewDockShell
         }
 
         var columnAxisProp = splitterType.GetProperty("IsColumnAxis");
-        if (columnAxisProp is null || _docking.Children.FirstOrDefault() is not UIElement root)
+        if (columnAxisProp is null || TryGetRoot() is not { } root)
         {
             return;
         }
@@ -284,7 +290,7 @@ public sealed class MewDockShell
         }
 
         var buttonField = viewType.GetField("_maximizeButton", BindingFlags.NonPublic | BindingFlags.Instance);
-        if (buttonField is null || _docking.Children.FirstOrDefault() is not Panel root)
+        if (buttonField is null || TryGetRoot() is not Panel root)
         {
             return;
         }
@@ -327,7 +333,7 @@ public sealed class MewDockShell
         }
 
         var closeField = tabType.GetField("_closeButton", BindingFlags.NonPublic | BindingFlags.Instance);
-        if (closeField is null || _docking.Children.FirstOrDefault() is not UIElement root)
+        if (closeField is null || TryGetRoot() is not { } root)
         {
             return;
         }

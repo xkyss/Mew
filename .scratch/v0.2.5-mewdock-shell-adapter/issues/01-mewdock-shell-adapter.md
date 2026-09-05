@@ -21,3 +21,4 @@
 - 实现要点：`DisableDockZoneBorders` 经 `StyleSheet.Define` **追加** rule（靠 GetByType 从后往前匹配生效），进 Tune 后若每次 Changed 重跑会无限追加——adapter 内加 `_zoneStylesApplied` 一次性守卫,首调注册、后续跳过（首次布局后子树未就绪时,首个 Changed 补注册,较旧行为更稳）。
 - Tune 调用点三处等价替换：Build 中段（原禁最大化+细分隔条,须先于首次布局）、Build 尾段（原四连调）、Changed 处理器。幂等以 `ConfiguredTabCloseCount`（internal 测试缝）锁定:真实 DockingManager + 文档 tab,连调两次接线数不增。
 - 测试 6 例:字符串表迁移生效、冗余集合取表值、修剪纯函数、真实 ContextMenu 修剪、Tune 幂等（接线数 1 稳定）、空停靠连调不抛。全量 137 + 103 绿。
+- code-review 修正：样式注册守卫原实现「未注册也置位」——子树未就绪（空布局/全关）时边框覆盖样式将永久跳过,且与票据承诺的「首个 Changed 补注册」不符;改为 `DisableDockZoneBorders` 返回 bool、注册成功才置位。`PruneGroupMenu` 改为真正调用纯函数 `PruneGroupMenuTexts`（消除平行实现漂移风险）;`TryGetModel()/TryGetRoot()` 收敛 4 处重复反射链。
