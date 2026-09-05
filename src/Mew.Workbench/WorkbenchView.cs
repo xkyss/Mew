@@ -1,7 +1,6 @@
 using Aprillz.MewUI;
 using Aprillz.MewUI.Controls;
 using Aprillz.MewUI.MewDock;
-using System.Reflection;
 using System.Text.Json;
 
 namespace Mew.Workbench;
@@ -10,6 +9,7 @@ internal sealed class WorkbenchView
 {
     private readonly Workbench _workbench;
     private DockingManager? _docking;
+    private MewDockShell? _shell;
     private WorkbenchThemeContext? _theme;
     private UIElement? _activityBar;
     private UIElement? _statusBar;
@@ -20,8 +20,6 @@ internal sealed class WorkbenchView
     // 必须解析到同一个实例。MewDock 的 SyncContent 在显式内容与 factory 内容实例不一致时会分离旧内容,
     // 而共享子元素(如设置文档的 StackPanel)的 Parent 仍指向已分离的旧包装,导致其无法重新挂接、tab 空白。
     private readonly Dictionary<string, UIElement> _paneContents = [];
-    // 已接线「悬浮显示关闭按钮」的 tab 实例:布局变更重扫时去重,避免重复订阅鼠标事件。
-    private readonly HashSet<object> _configuredTabClose = [];
 
     internal WorkbenchView(Workbench workbench) => _workbench = workbench;
 
@@ -31,6 +29,7 @@ internal sealed class WorkbenchView
     {
         var docking = new DockingManager();
         _docking = docking;
+        _shell = new MewDockShell(docking);
         var theme = _workbench.ThemeContext;
         _theme = theme;
         var layoutStore = new WorkbenchLayoutStore();
@@ -56,11 +55,8 @@ internal sealed class WorkbenchView
             AddDefaultPanes(docking, theme);
         }
 
-        // 标签栏「最大化/恢复」按钮无实际效果,禁用以隐藏。FlexTabSetView 在构造时按
-        // TabSetEnableMaximize 决定是否创建按钮,而模型在首次布局时才创建,故在每次布局变更后
-        // 重新断言该 flag(首次启动的 AddDocumentPane 路径也覆盖到)。
-        DisableTabSetMaximize(docking);
-        ThinDockSplitters(docking); // 侧边栏/编辑器区、编辑器区/底部面板之间的拖动分隔条做到最细
+        // 模型级调参须先于首次布局(最大化按钮按构造期 flag 创建、分隔条尺寸按 arrange 收窄),故此处先 Tune 一次
+        _shell.Tune();
 
         if (layoutStore.TryLoadPresentation() is { } presentation)
         {
@@ -69,11 +65,8 @@ internal sealed class WorkbenchView
 
         docking.Changed += (_, _) =>
         {
-            // 布局变更可能新建 tabset 视图:重新断言模型 flag + 视图层直接隐藏按钮 + 接线 tab 关闭按钮悬浮显示
-            DisableTabSetMaximize(docking);
-            HideMaximizeButtons(docking);
-            ConfigureTabCloseHover(docking);
-            WireSplitterCursors(docking);
+            // 布局变更可能新建 tabset 视图:重申全部 MewDock 行为调参(幂等,见 MewDockShell.Tune)
+            _shell.Tune();
             layoutStore.Save(docking.SaveLayout());
         };
         docking.Changed += (_, _) =>
@@ -95,7 +88,7 @@ internal sealed class WorkbenchView
         {
             if (args.Group.Edge == DockEdge.Bottom)
             {
-                PruneDuplicatedGroupMenuItems(args.Menu);
+                MewDockShell.PruneGroupMenu(args.Menu);
             }
         };
         _workbench.PresentationChanged += ApplyChromeVisibility;
@@ -110,31 +103,11 @@ internal sealed class WorkbenchView
             });
         var shell = BuildShell(docking);
         ApplyChromeVisibility();
-        DisableDockZoneBorders(docking);
-        HideMaximizeButtons(docking); // 初始 tabset 视图已就绪,视图层隐藏最大化按钮
-        ConfigureTabCloseHover(docking); // 初始 tab 的关闭按钮默认隐藏,悬浮时显示
-        WireSplitterCursors(docking); // 拖动分隔条时鼠标样式变为缩放指针
+        _shell.Tune(); // 初始 tabset 视图已就绪:边框覆盖样式注册(仅首次) + 最大化按钮隐藏 + tab 关闭悬浮 + 分隔条光标
         return shell;
     }
 
     /// <summary>应用外壳区域显隐:活动栏/状态栏直接控制;侧边栏/底部面板按 id 查找并 Close/重建 tool pane。</summary>
-    /// <summary>去掉分组菜单里与标题栏独立按钮同义的项（自动隐藏/关闭），保留浮动等无独立按钮的入口。</summary>
-    private static void PruneDuplicatedGroupMenuItems(ContextMenu menu)
-    {
-        var redundant = new HashSet<string>(StringComparer.Ordinal)
-        {
-            "自动隐藏", "Auto Hide",
-            "关闭", "Close",
-        };
-        foreach (var entry in menu.Items.ToList())
-        {
-            if (entry is MenuItem item && redundant.Contains(item.Text))
-            {
-                menu.Items.Remove(entry);
-            }
-        }
-    }
-
     private void ApplyChromeVisibility()
     {
         _applyingChromeVisibility = true;
@@ -265,125 +238,6 @@ internal sealed class WorkbenchView
         var document = _workbench.EditorAreaModel.Documents.FirstOrDefault(d => d.Id == id)
             ?? throw new ArgumentException($"不存在编辑器文档“{id}”。", nameof(id));
         return PaneContent(id, document.Content, WorkbenchZone.EditorArea);
-    }
-
-    private static readonly MethodInfo DefineStyleRule = typeof(StyleSheet)
-        .GetMethods()
-        .FirstOrDefault(m => m.Name == nameof(StyleSheet.Define)
-            && m.IsGenericMethodDefinition
-            && m.GetParameters() is [{ ParameterType: var p }] && p == typeof(Style))
-        ?? throw new MissingMethodException(nameof(StyleSheet), nameof(StyleSheet.Define));
-
-    /// <summary>
-    /// MewDock 内置 DockStyles 给 tabset / 侧边栏 / Tab 按钮画边框(默认 ControlBorder,焦点时 ControlBorder→Accent 75% 混合)。
-    /// 五个工作台区按设计不显示边框:FlexLayoutView 的 StyleSheet 按类型注册 rule 且 GetByType 从后往前匹配——
-    /// 向其中追加覆盖 rule 即可关闭边框。目标控件类型在 MewDock 中是 internal,无法静态引用,故经反射按名解析类型。
-    /// </summary>
-    private static void DisableDockZoneBorders(DockingManager docking)
-    {
-        if (docking.Children.FirstOrDefault() is not FrameworkElement { StyleSheet: { } sheet })
-        {
-            return;
-        }
-
-        var assembly = typeof(DockingManager).Assembly;
-        OverrideStyle(assembly, sheet, "Aprillz.MewUI.MewDock.Controls.FlexTabSetView", CreateBorderlessTabSetStyle);
-        OverrideStyle(assembly, sheet, "Aprillz.MewUI.MewDock.Extended.ExtendedBorderBar", CreateBorderlessBorderBarStyle);
-        OverrideStyle(assembly, sheet, "Aprillz.MewUI.MewDock.Controls.FlexTabButton", CreateBorderlessTabButtonStyle);
-        OverrideStyle(assembly, sheet, "Aprillz.MewUI.MewDock.Controls.FlexSplitter", CreateThinSplitterStyle);
-    }
-
-    /// <summary>
-    /// 拖动分隔条(FlexSplitter)做到最细:常驻 grip 线去掉(平时不可见),悬停/拖动时仅显示
-    /// 细的 accent 高亮;与 SplitterSize=1 配合,避免细尺寸下 grip 线(长度按宽度-8 计算)溢出。
-    /// </summary>
-    private static Style CreateThinSplitterStyle(Type type) => new(type)
-    {
-        Transitions = [Transition.Create(Control.BackgroundProperty, 200, t => t)],
-        Setters =
-        [
-            Setter.Create(Control.BackgroundProperty, Color.Transparent),
-            Setter.Create(Control.BorderBrushProperty, Color.Transparent),
-        ],
-        Triggers =
-        [
-            new StateTrigger
-            {
-                Match = VisualStateFlags.Hot,
-                Setters = [Setter.Create(Control.BackgroundProperty, t => t.Palette.Accent.WithAlpha(26))],
-            },
-            new StateTrigger
-            {
-                Match = VisualStateFlags.Pressed,
-                Setters = [Setter.Create(Control.BackgroundProperty, t => t.Palette.Accent.WithAlpha(48))],
-            },
-        ],
-    };
-
-    /// <summary>
-    /// 编辑器区/侧边栏/底部面板的 tabset:无边框。BorderThickness 置 0 后 FlexTabSetView 的 body
-    /// 只画背景不画边框;圆角一并清零,避免 body 背景与相邻区之间出现缺角。
-    /// </summary>
-    private static Style CreateBorderlessTabSetStyle(Type type) => new(type)
-    {
-        Setters =
-        [
-            Setter.Create(Control.BackgroundProperty, t => t.Palette.ContainerBackground),
-            Setter.Create(Control.BorderBrushProperty, Color.Transparent),
-            Setter.Create(Control.CornerRadiusProperty, 0.0),
-            Setter.Create(Control.BorderThicknessProperty, 0.0),
-        ],
-    };
-
-    /// <summary>
-    /// 自动隐藏边缘条(ExtendedBorderBar)的折叠面板:其边框在 OnRender 里硬编码取
-    /// Theme.Metrics.ControlBorderThickness,无法用 BorderThickness 关闭——把 BorderBrush 设为
-    /// 透明即可让 DrawBackgroundAndBorder 跳过边框绘制(背景仍按原样填充)。
-    /// </summary>
-    private static Style CreateBorderlessBorderBarStyle(Type type) => new(type)
-    {
-        Setters = [Setter.Create(Control.BorderBrushProperty, Color.Transparent)],
-    };
-
-    /// <summary>
-    /// Tab 按钮(FlexTabButton):不显示边框。未选中项背景与 tab 栏一致(ContainerBackground),
-    /// 仅选中项用编辑器区背景(WindowBackground)区分,并与下方编辑内容连成一体。
-    /// </summary>
-    private static Style CreateBorderlessTabButtonStyle(Type type) => new(type)
-    {
-        Transitions = [Transition.Create(Control.BackgroundProperty, 200, t => t)],
-        Setters =
-        [
-            Setter.Create(Control.BackgroundProperty, t => t.Palette.ContainerBackground),
-            Setter.Create(Control.BorderBrushProperty, Color.Transparent),
-            Setter.Create(TextElement.ForegroundProperty, t => t.Palette.WindowText),
-            Setter.Create(Control.PaddingProperty, new Thickness(8.0, 2.0, 8.0, 2.0)),
-            Setter.Create(Control.CornerRadiusProperty, t => t.Metrics.ControlCornerRadius),
-            Setter.Create(Control.BorderThicknessProperty, 0.0),
-        ],
-        Triggers =
-        [
-            new StateTrigger
-            {
-                Match = VisualStateFlags.Hot,
-                Setters = [Setter.Create(Control.BackgroundProperty, t => t.Palette.ButtonHoverBackground)],
-            },
-            new StateTrigger
-            {
-                Match = VisualStateFlags.Selected,
-                Setters = [Setter.Create(Control.BackgroundProperty, t => t.Palette.WindowBackground)],
-            },
-        ],
-    };
-
-    private static void OverrideStyle(Assembly assembly, StyleSheet sheet, string typeName, Func<Type, Style> factory)
-    {
-        if (assembly.GetType(typeName) is not { } type)
-        {
-            return;
-        }
-
-        DefineStyleRule.MakeGenericMethod(type).Invoke(sheet, [factory(type)]);
     }
 
     private UIElement BuildShell(DockingManager docking)
@@ -545,201 +399,6 @@ internal sealed class WorkbenchView
         button.WithTheme((_, btn) => btn.Background(ActivityButtonBackground(item.Id)));
 
         return button;
-    }
-
-    /// <summary>
-    /// 标签栏「最大化/恢复」按钮无实际效果(MewDock 最大化未完整接线),关闭模型级 TabSetEnableMaximize
-    /// 使 TabSetNode.IsEnableMaximize / CanMaximize 为假,按钮不再渲染。DockingManager 不公开模型引用,
-    /// 故按私有字段 _model 反射获取;与 DisableDockZoneBorders 同属 MewDock 内部适配。
-    /// </summary>
-    private static void DisableTabSetMaximize(DockingManager docking)
-    {
-        var model = typeof(DockingManager)
-            .GetField("_model", BindingFlags.NonPublic | BindingFlags.Instance)
-            ?.GetValue(docking);
-        model?.GetType()
-            .GetProperty("TabSetEnableMaximize")
-            ?.SetValue(model, false);
-    }
-
-    /// <summary>
-    /// 侧边栏/编辑器区、编辑器区/底部面板之间的拖动分隔条做到最细:把 MewDock 模型的
-    /// SplitterSize 设为 3(分隔条仅 3px,平时透明不可见,悬停/拖动时显示细高亮)。
-    /// 模型经 DockingManager._model 反射获取,首次布局后的 arrange 即按新值收窄;
-    /// 布局持久化会保存新值,后续启动直接生效。与 DisableTabSetMaximize 同类适配。
-    /// </summary>
-    private static void ThinDockSplitters(DockingManager docking)
-    {
-        var model = typeof(DockingManager)
-            .GetField("_model", BindingFlags.NonPublic | BindingFlags.Instance)
-            ?.GetValue(docking);
-        model?.GetType()
-            .GetProperty("SplitterSize")
-            ?.SetValue(model, 3.0);
-    }
-
-    /// <summary>
-    /// 拖动分隔条时鼠标样式按方向变为缩放指针(仿 VS Code):垂直分隔条(侧边栏/编辑器)→
-    /// 左右缩放(SizeWE),水平分隔条(编辑器/底部面板)→ 上下缩放(SizeNS)。设置 UIElement.Cursor
-    /// 后悬浮该分隔条即自动生效;新分隔条在布局变更重扫时按 IsColumnAxis 重新接线。
-    /// </summary>
-    private static void WireSplitterCursors(DockingManager docking)
-    {
-        var assembly = typeof(DockingManager).Assembly;
-        if (assembly.GetType("Aprillz.MewUI.MewDock.Controls.FlexSplitter") is not { } splitterType)
-        {
-            return;
-        }
-
-        var columnAxisProp = splitterType.GetProperty("IsColumnAxis");
-        if (columnAxisProp is null || docking.Children.FirstOrDefault() is not UIElement root)
-        {
-            return;
-        }
-
-        VisitDockElements(root, element =>
-        {
-            if (splitterType.IsInstanceOfType(element) && element is Control splitter)
-            {
-                splitter.Cursor = columnAxisProp.GetValue(element) is true
-                    ? CursorType.SizeNS
-                    : CursorType.SizeWE;
-            }
-        });
-    }
-
-    /// <summary>
-    /// 视图层隐藏所有 tabset 的「最大化/恢复」按钮。按钮在 FlexTabSetView 构造时按模型 flag 创建,
-    /// 而模型在首次布局(AddDocumentPane 路径)时才就绪,flag 时序不可控;直接隐藏视图的
-    /// _maximizeButton 字段在所有场景下都可靠。与 DisableDockZoneBorders 同属 MewDock 内部适配。
-    /// </summary>
-    private static void HideMaximizeButtons(DockingManager docking)
-    {
-        var assembly = typeof(DockingManager).Assembly;
-        if (assembly.GetType("Aprillz.MewUI.MewDock.Controls.FlexTabSetView") is not { } viewType)
-        {
-            return;
-        }
-
-        var buttonField = viewType.GetField("_maximizeButton", BindingFlags.NonPublic | BindingFlags.Instance);
-        if (buttonField is null || docking.Children.FirstOrDefault() is not Panel root)
-        {
-            return;
-        }
-
-        var stack = new Stack<Panel>();
-        stack.Push(root);
-        while (stack.Count > 0)
-        {
-            var panel = stack.Pop();
-            foreach (var child in panel.Children)
-            {
-                if (viewType.IsInstanceOfType(child))
-                {
-                    if (buttonField.GetValue(child) is FrameworkElement { IsVisible: true } button)
-                    {
-                        button.IsVisible = false;
-                    }
-                }
-                else if (child is Panel nested)
-                {
-                    stack.Push(nested);
-                }
-            }
-        }
-    }
-
-    /// <summary>
-    /// 编辑器 tab 的「×」关闭按钮仅鼠标悬浮时显示,且 tab 宽度不随悬浮/按钮显隐变化。
-    /// 关闭按钮始终占据布局空间(IsVisible 保持 true),未悬浮时置透明并关闭命中测试;
-    /// 悬浮 tab 时恢复显示。FlexTabButton 与 _closeButton 在 MewDock 中为 internal/private,
-    /// 故经反射遍历停靠区视图树接线;运行时新建 tab 时 docking.Changed 会重新执行,
-    /// 已接线实例用 _configuredTabClose 去重。仅文档 tab 有 _closeButton,工具 tab 自动跳过。
-    /// </summary>
-    private void ConfigureTabCloseHover(DockingManager docking)
-    {
-        var assembly = typeof(DockingManager).Assembly;
-        if (assembly.GetType("Aprillz.MewUI.MewDock.Controls.FlexTabButton") is not { } tabType)
-        {
-            return;
-        }
-
-        var closeField = tabType.GetField("_closeButton", BindingFlags.NonPublic | BindingFlags.Instance);
-        if (closeField is null || docking.Children.FirstOrDefault() is not UIElement root)
-        {
-            return;
-        }
-
-        VisitDockElements(root, element =>
-        {
-            if (tabType.IsInstanceOfType(element))
-            {
-                WireTabCloseHover(element, tabType, closeField);
-            }
-        });
-    }
-
-    /// <summary>深度优先遍历停靠区视图树(tabset 等 Control 仅实现 IVisualTreeHost,不属 Panel)。</summary>
-    private static void VisitDockElements(Element element, Action<UIElement> visit)
-    {
-        if (element is UIElement uiElement)
-        {
-            visit(uiElement);
-        }
-
-        if (element is Panel panel)
-        {
-            foreach (var child in panel.Children)
-            {
-                VisitDockElements(child, visit);
-            }
-        }
-        else if (element is IVisualTreeHost host)
-        {
-            host.VisitChildren(child =>
-            {
-                VisitDockElements(child, visit);
-                return true;
-            });
-        }
-    }
-
-    private void WireTabCloseHover(UIElement tab, Type tabType, FieldInfo closeField)
-    {
-        if (!_configuredTabClose.Add(tab))
-        {
-            return;
-        }
-
-        if (closeField.GetValue(tab) is not Button closeButton)
-        {
-            return;
-        }
-
-        // 关闭按钮(16px)始终占据布局空间,保证 tab 宽度不随悬浮/按钮显隐变化;
-        // 未悬浮时隐藏「×」内容并关闭命中测试,悬浮 tab 时恢复。
-        var glyph = closeButton.Content as UIElement;
-        if (glyph is not null)
-        {
-            glyph.IsVisible = false;
-        }
-        closeButton.IsHitTestVisible = false;
-        tab.MouseEnter += () =>
-        {
-            if (glyph is not null)
-            {
-                glyph.IsVisible = true;
-            }
-            closeButton.IsHitTestVisible = true;
-        };
-        tab.MouseLeave += () =>
-        {
-            if (glyph is not null)
-            {
-                glyph.IsVisible = false;
-            }
-            closeButton.IsHitTestVisible = false;
-        };
     }
 
     /// <summary>设置状态栏项文本颜色(启动失败红色醒目用);null 恢复区前景色。</summary>

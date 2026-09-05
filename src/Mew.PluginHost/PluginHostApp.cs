@@ -52,7 +52,7 @@ internal sealed class PluginHostApp
 
     internal void Run()
     {
-        LocalizeDockStrings();
+        MewDockShell.Localize(); // MewDock 适配（ADR-000205）：字符串表设置住 adapter,须在首个 DockingManager 构造前
         var window = new NativeChromeWindow()
             .Title("Mew Launcher")
             .Resizable(1080, 720);
@@ -433,30 +433,6 @@ internal sealed class PluginHostApp
                 .WithTheme((_, l) => l.Foreground(exists ? theme.EditorArea.Foreground : ShellIcons.HotkeyWarning));
             _pluginPanel!.Add(new StackPanel().Spacing(2).Children(pathLabel, tagLabel));
         }
-    }
-
-    /// <summary>MewDock 界面文案中文化 + 空标题真正留白（宿主窗格标题置空后靠此不显示 [Unnamed Tab]）。</summary>
-    private static void LocalizeDockStrings()
-    {
-        MewUIDockString.TitleUnnamedTab.Value = "";
-        MewUIDockString.MenuFloat.Value = "浮动";
-        MewUIDockString.MenuAutoHide.Value = "自动隐藏";
-        MewUIDockString.MenuClose.Value = "关闭";
-        MewUIDockString.MenuCloseOthers.Value = "关闭其他";
-        MewUIDockString.MenuCloseAll.Value = "关闭全部";
-        MewUIDockString.MenuNewVerticalTabGroup.Value = "新建垂直选项卡组";
-        MewUIDockString.MenuNewHorizontalTabGroup.Value = "新建水平选项卡组";
-        MewUIDockString.MenuMoveToNextTabGroup.Value = "移到下一个选项卡组";
-        MewUIDockString.MenuMoveToPreviousTabGroup.Value = "移到上一个选项卡组";
-        MewUIDockString.MenuMaximize.Value = "最大化";
-        MewUIDockString.MenuRestore.Value = "还原";
-        MewUIDockString.MemuDock.Value = "停靠";
-        MewUIDockString.ToolTipClose.Value = "关闭";
-        MewUIDockString.ToolTipAutoHide.Value = "自动隐藏";
-        MewUIDockString.ToolTipDock.Value = "停靠";
-        MewUIDockString.ToolTipMaximize.Value = "最大化";
-        MewUIDockString.ToolTipRestore.Value = "还原";
-        MewUIDockString.ToolTipHiddenTabs.Value = "隐藏的选项卡";
     }
 
     private void OnPluginHostPreviewKeyDown(KeyEventArgs e)
