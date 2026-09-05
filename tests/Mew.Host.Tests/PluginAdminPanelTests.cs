@@ -168,7 +168,41 @@ public class PluginAdminPanelTests
         Assert.Equal(["alpha-disp (alpha) v1.2.3", "beta-disp (beta) v1.2.3"], titles);
     }
 
+    [Fact]
+    public void Refresh_需JIT行_覆盖策略词_无误导开关_不标红()
+    {
+        var service = new FakeService
+        {
+            Rows = [new PluginAdminRow(Descriptor("jit"), PluginRowState.Derive(true, PluginHealth.NeedsJit, crashed: false, stillLoaded: false))],
+        };
+        var panel = new PluginAdminPanel(service, _theme, "空");
+        panel.Refresh();
+
+        var labels = Labels(panel);
+        Assert.Contains(labels, l => l.Text == "需 JIT 扩展主机");
+        Assert.Contains(labels, l => l.Text == "—");
+        // 需 JIT 不在警示集合内（与 v0.2.3 一致）：区前景色
+        Assert.Equal(_theme.EditorArea.Foreground, labels.Single(l => l.Text == "需 JIT 扩展主机").Foreground);
+    }
+
     // ---- 动作路由断言 ----
+
+    [Fact]
+    public void Activate_崩溃行路由重启()
+    {
+        var service = new FakeService
+        {
+            Rows = [Row(Descriptor("dead", entryType: "exe"), enabled: true, crashed: true)],
+        };
+        var applied = new List<(string Id, PluginRowAction Action)>();
+        var panel = new PluginAdminPanel(service, _theme, "空",
+            onApplied: (id, action, _) => applied.Add((id, action)));
+        panel.Refresh();
+
+        panel.Activate("dead");
+
+        Assert.Equal([("dead", PluginRowAction.Restart)], applied);
+    }
 
     [Fact]
     public void Activate_路由到adapter并回调_随后重绘()

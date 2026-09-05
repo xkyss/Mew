@@ -18,3 +18,5 @@
 - 已完成。`PluginAdminPanel`（Mew.Workbench）：`PluginAdminRow`（描述符+行状态，标题格式渲染器统一）、`PluginAdminOutcome/PluginAdminResult`（Ok/Rejected/Unreachable 三态）、`IPluginAdminService { Snapshot, Apply }`、进程无关渲染器（含空态提示与「仅行存在时渲染」的页脚文字，文案归所在 exe）。
 - 无头测试 9 例（复用零句柄组装 + 树遍历先例）：文案与配色、健康态覆盖标红、行序大小写不敏感、空态无页脚、页脚条件渲染、重复刷新不残留、Activate 路由（None 不路由/未知 id 忽略）、回调与重绘。
 - 实现 note：`StackPanel.Spacing` 为实例属性（fluent 扩展在类内部被属性遮蔽），ctor 内改属性赋值。
+- code-review 补测 2 例：需 JIT 行渲染（覆盖策略词、不标红、「—」开关——IsWarning 集合不含 NeedsJit，与 v0.2.3 一致）、崩溃行经 Activate 路由「重启」。
+- code-review 裁决：宿主崩溃行现在渲染红色提示行「进程异常退出，点击重启重新拉起」——v0.2.3 宿主渲染器缺 Hint 行属克隆漂移，提示文本出自 ADR-000203 行标签契约的推导结果，判定为补完契约而非 UX 回归，测试锁定。

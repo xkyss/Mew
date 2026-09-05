@@ -15,14 +15,13 @@ public class ExtensionHostPluginAdminServiceTests
     private sealed class FakeTransport
     {
         public List<(string Id, bool Enabled)> Calls { get; } = [];
-        public PluginEnableSetAckMessage? Ack { get; set; }
-        public string? TransportError { get; set; }
+        public PluginAdminResult Result { get; set; } = PluginAdminResult.Ok();
 
         public EnableTransport Delegate => (string id, bool enabled, out string? transportError) =>
         {
             Calls.Add((id, enabled));
-            transportError = TransportError;
-            return Ack;
+            transportError = null;
+            return Result;
         };
     }
 
@@ -84,7 +83,7 @@ public class ExtensionHostPluginAdminServiceTests
     public void Apply_Enable_宿主确认_本地缓存内存同步_不改盘()
     {
         var (service, store, transport) = Build();
-        transport.Ack = new PluginEnableSetAckMessage(true, null, "alpha", true);
+        transport.Result = PluginAdminResult.Ok();
 
         var result = service.Apply("alpha", PluginRowAction.Enable);
 
@@ -98,7 +97,7 @@ public class ExtensionHostPluginAdminServiceTests
     public void Apply_宿主拒绝_透传原因_缓存不动()
     {
         var (service, store, transport) = Build();
-        transport.Ack = new PluginEnableSetAckMessage(false, "未知插件：alpha", "alpha", true);
+        transport.Result = PluginAdminResult.Rejected("未知插件：alpha");
 
         var result = service.Apply("alpha", PluginRowAction.Disable);
 
@@ -111,8 +110,7 @@ public class ExtensionHostPluginAdminServiceTests
     public void Apply_宿主不可达_透传传输错误_缓存不动()
     {
         var (service, store, transport) = Build();
-        transport.Ack = null;
-        transport.TransportError = "宿主无响应";
+        transport.Result = PluginAdminResult.Unreachable("宿主无响应");
 
         var result = service.Apply("alpha", PluginRowAction.Disable);
 

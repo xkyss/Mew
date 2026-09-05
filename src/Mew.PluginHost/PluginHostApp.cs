@@ -111,7 +111,7 @@ internal sealed class PluginHostApp
         _pluginAdmin = new ExtensionHostPluginAdminService(
             _discoveredPlugins, _pluginEnables,
             () => _dllLoader?.Loaded.Select(x => x.Descriptor.Id).ToArray() ?? [],
-            (string id, bool enabled, out string? transportError) => EnablePluginIpc.TrySet(id, enabled, out transportError));
+            EnablePluginIpc.TryRequest);
         // 将捕获的源通过管道注册到宿主（内存直连模式下 _ipcServer 为空则走管道）
         foreach (var src in CapturingOverlay.Captured.ToList())
         {

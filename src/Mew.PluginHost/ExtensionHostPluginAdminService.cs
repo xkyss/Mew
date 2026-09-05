@@ -1,14 +1,13 @@
-using Mew.Workbench.Ipc;
 using Mew.Workbench.Plugins;
 
 namespace Mew.PluginHost;
 
-/// <summary>启用/禁用一次性传输的形状（EnablePluginIpc.TrySet 与测试替身共用）。</summary>
-internal delegate PluginEnableSetAckMessage? EnableTransport(string id, bool enabled, out string? transportError);
+/// <summary>启用/禁用管理缝入口（EnablePluginIpc.TryRequest 与测试替身共用）：ack 报文映射已在 IPC 层完成（ADR-000204 决策 3）。</summary>
+internal delegate PluginAdminResult EnableTransport(string id, bool enabled, out string? transportError);
 
 /// <summary>
 /// 扩展主机侧插件管理 adapter（ADR-000204）：发现结果 + 本地只读启用缓存 + DLL 装载实态的行来源；
-/// 写路径走一次性 IPC 请求宿主落盘（宿主唯一写者，ADR-000203 第 7 条），本地缓存仅在 ack 成功后内存同步。
+/// 写路径走一次性 IPC 请求宿主落盘（宿主唯一写者，ADR-000203 第 7 条），本地缓存仅在确认后内存同步。
 /// 行序排序归共享面板，此处按发现序交出。
 /// </summary>
 internal sealed class ExtensionHostPluginAdminService : IPluginAdminService
@@ -47,15 +46,12 @@ internal sealed class ExtensionHostPluginAdminService : IPluginAdminService
         if (action is not (PluginRowAction.Enable or PluginRowAction.Disable))
             return PluginAdminResult.Rejected("该行不提供动作");
         var target = action == PluginRowAction.Enable;
-        var ack = _trySet(id, target, out var transportError);
-        if (ack is { Ok: true })
+        var result = _trySet(id, target, out _);
+        if (result.Outcome == PluginAdminOutcome.Ok)
         {
-            // 宿主已确认落盘：同步本地意图（内存缓存），T2 生效时机 = 下次主界面启动
-            _enables.SetEnabled(id, ack.Enabled);
-            return PluginAdminResult.Ok();
+            // 宿主已确认落盘（确认值即请求目标）：同步本地意图（内存缓存），T2 生效时机 = 下次主界面启动
+            _enables.SetEnabled(id, target);
         }
-        if (ack is { Error: not null })
-            return PluginAdminResult.Rejected(ack.Error);
-        return PluginAdminResult.Unreachable(transportError ?? "宿主无响应");
+        return result;
     }
 }
