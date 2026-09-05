@@ -90,6 +90,14 @@ internal sealed class WorkbenchView
                 args.Menu.Item("在侧边栏定位", () => _workbench.RevealDocument(args.Pane.Component!));
             }
         };
+        // 底部组标题栏已有 pin/× 独立按钮，分组菜单里去掉同义的自动隐藏/关闭，只留浮动等入口。
+        docking.GroupMenuOpening += (_, args) =>
+        {
+            if (args.Group.Edge == DockEdge.Bottom)
+            {
+                PruneDuplicatedGroupMenuItems(args.Menu);
+            }
+        };
         _workbench.PresentationChanged += ApplyChromeVisibility;
         _workbench.PresentationChanged += () => layoutStore.SavePresentation(
             new WorkbenchPresentationState
@@ -110,6 +118,23 @@ internal sealed class WorkbenchView
     }
 
     /// <summary>应用外壳区域显隐:活动栏/状态栏直接控制;侧边栏/底部面板按 id 查找并 Close/重建 tool pane。</summary>
+    /// <summary>去掉分组菜单里与标题栏独立按钮同义的项（自动隐藏/关闭），保留浮动等无独立按钮的入口。</summary>
+    private static void PruneDuplicatedGroupMenuItems(ContextMenu menu)
+    {
+        var redundant = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "自动隐藏", "Auto Hide",
+            "关闭", "Close",
+        };
+        foreach (var entry in menu.Items.ToList())
+        {
+            if (entry is MenuItem item && redundant.Contains(item.Text))
+            {
+                menu.Items.Remove(entry);
+            }
+        }
+    }
+
     private void ApplyChromeVisibility()
     {
         _applyingChromeVisibility = true;
