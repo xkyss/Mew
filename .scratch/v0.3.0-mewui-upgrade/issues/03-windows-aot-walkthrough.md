@@ -19,11 +19,11 @@
 - [ ] 主题循环切换(跟随系统/亮/暗)后各区重绘正常——ADR-000102-01 记录的 0.19.1 局部渲染损坏 bug,0.20 重构后验证是否已修
 - [ ] 菜单访问键(_File/_View/_Help 下划线与 Alt 触发)正常——0.20 命令模型下访问键迁移到 CommandPresentation,显示形态需确认
 - [ ] View 菜单切换项文本随显隐反转且点击生效(命令派发经 menuBar.Commands)
-- [ ] 底部分组菜单:原生弹窗重构后 PruneGroupMenu 去重仍命中(FlexTabSetView/_maximizeButton、FlexSplitter 光标同批)- [ ] 走查结论记入本票 Comments(失效项回 01/02 修复后重走)
-
-## Comments
-
+- [ ] 底部分组菜单:原生弹窗重构后 PruneGroupMenu 去重仍命中(FlexTabSetView/_maximizeButton、FlexSplitter 光标同批)
+- [ ] 走查结论记入本票 Comments(失效项回 01/02 修复后重走)
 
 ## Comments
 
 - 2026-09-05(WSL 侧准备完成):票据 01/02 已落地——编译/测试全绿,可无头验证的触点语义全部通过(见 02 核对表);本票为唯一剩余验收门槛,待 Windows 环境执行。走查时按上方清单逐项打勾,失效项回 01/02 修复后重走。
+- 2026-09-05 真机首验(WSL 侧触发 Windows 运行):发现并修复两处 0.20 启动崩溃——①NativeChromeWindow 往窗口默认 StyleSheet 上 Define,0.20 赋值 setter 冻结传入表,改为局部表定义后整体赋值;②mxd 插件 Configure 半途抛出留下半份五区贡献,Build 配对校验崩溃,PluginDllLoader 事务化(快照/回退)后加载失败仅跳过。修复后:宿主启动日志/热键句柄/拉起主界面全流程通过,主界面不再崩(待人工确认托盘与窗口观感)。
+- mxd 插件按 0.19.1 编译,撞 0.20 移除的 `Content(Button, Element)` ——需在 Mxd 仓库按 0.20.2 重编译(预期内兼容断点,非宿主缺陷)。

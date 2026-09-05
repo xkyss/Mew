@@ -14,9 +14,6 @@
 
 ## Comments
 
-
-## Comments
-
 - 触点核对表(0.20.2,无头可验证项):
   | 触点 | 验证方式 | 结果 |
   |---|---|---|
@@ -31,3 +28,4 @@
   | 原生弹窗后的菜单命令派发(ContextMenu.Commands) | 需真实点击 | → 03 走查 |
 - 新增内部观察点 `MewDockShell.ZoneStylesApplied`,3 个语义测试锁定(140 例全绿);失效项:无。
 - 不可无头项已并入 03 走查清单(共 4 项,外加 01 的访问键/View 切换文本显示)。
+- 真机首验补遗:反射触点名字存活之外,运行期发现的新语义断点是「窗口默认 StyleSheet 冻结」——它不属 MewDockShell 触点,已在 NativeChromeWindow 修复。

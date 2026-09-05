@@ -68,8 +68,7 @@ public static class TitleBarBuilder
     /// <summary>构造「(显示/隐藏)xx」菜单项:文本反映当前状态,点击切换后文本反转（点击经命令派发）。</summary>
     private static MenuItem ViewToggleItem(Workbench workbench, CommandScope scope, Action toggle, Func<bool> isVisible, string label)
     {
-        var command = new Command($"mew.view.{label}", "");
-        scope.Register(command, toggle, null);
+        var command = MewCommands.Register(scope, $"mew.view.{label}", "", toggle);
         var item = new MenuItem(command);
         void UpdateText()
         {

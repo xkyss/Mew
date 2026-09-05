@@ -17,12 +17,10 @@
 
 ## Comments
 
-
-## Comments
-
 - 已完成。两包 0.20.2;`AppVersion` = v0.3.0。
 - 菜单/命令迁移点:`TitleBarBuilder`(MenuBar 命令注册进 `menuBar.Commands`,View 切换项 = `MenuItem(command)` + `Text` 随显隐反转)、`WorkbenchView`(TabMenuOpening 命令注册进事件自带 `args.Commands`)、`LauncherModule` 两处右键菜单(注册进 `ContextMenu.Commands`,替代 `ContextMenu.Item(text, Action)`)。`Application.Quit` → `Application.Shutdown()`(2 处)。
 - 新增共享助手 `MewCommands.Register(scope, id, text, execute)`(三处命令注册样板)。
 - **0.20 运行时发现**:视觉树构建带全局静态状态(`BumpContextVersionDeep`/`VisualTree.Visit` 共享集合),无头**并行**建树不再线程安全(单跑通过、并行 NRE/OOR)——两个测试工程加 `xunit.runner.json` 关闭集合并行;此为测试基建约束,产品代码不受影响。
 - 访问键(`_File` 下划线)与 View 切换项文本反转的**显示**行为无头不可验证,已进 03 走查清单。
 - 全量:Host.Tests 137 + Launcher.Tests 103 全绿。
+- 真机首验补遗:NativeChromeWindow 的 StyleSheet 冻结崩溃与 mxd 半装载崩 Build 已修(见 03 Comments);`MewCommands.Register` 已覆盖全部命令注册点(含 ViewToggleItem 与 TabMenuOpening)。

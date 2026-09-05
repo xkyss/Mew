@@ -110,7 +110,17 @@ public sealed class PluginDllLoader
                 }
                 // 权限越权：若清单未声明 search 但模块尝试注册 search，将在 IpcServer 层拒绝；此处先按清单 capabilities 预检
                 var ctx = contextFactory();
-                module!.Configure(ctx);
+                // 事务化 Configure（ADR-000300）：半途抛出即回退半份贡献，否则残留的活动栏/侧边栏项会让 Build 配对校验崩溃
+                var snapshot = ctx.Workbench.SnapshotContributions();
+                try
+                {
+                    module!.Configure(ctx);
+                }
+                catch
+                {
+                    ctx.Workbench.RollbackContributions(snapshot);
+                    throw;
+                }
                 lock (_lock) _loaded.Add((desc, alc, module));
                 results.Add(new PluginLoadResult(desc, true, null));
             }

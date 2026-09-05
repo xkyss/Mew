@@ -31,9 +31,11 @@ public sealed class NativeChromeWindow : Window
         ExtendClientAreaTitleBarHeight = TitleBarHeight;
         base.Padding = new Thickness(0);
 
-        StyleSheet = new StyleSheet();
-        StyleSheet.Define("chrome", CreateChromeButtonStyle);
-        StyleSheet.Define("close", CreateCloseButtonStyle);
+        // 0.20 语义:StyleSheet 赋值 setter 会冻结传入的表——先在局部表上定义完再整体赋值
+        var sheet = new StyleSheet();
+        sheet.Define("chrome", CreateChromeButtonStyle);
+        sheet.Define("close", CreateCloseButtonStyle);
+        StyleSheet = sheet;
 
         _titleText = new TextBlock
         {

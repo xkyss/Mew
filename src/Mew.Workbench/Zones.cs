@@ -12,6 +12,15 @@ public sealed class ActivityBar
 
     public IReadOnlyList<ActivityBarItem> Items => _items;
 
+    /// <summary>内部:裁剪到指定项数(插件 Configure 失败的半装载回退,ADR-000300)。</summary>
+    internal void TrimTo(int count)
+    {
+        if (_items.Count > count)
+        {
+            _items.RemoveRange(count, _items.Count - count);
+        }
+    }
+
     public ActivityBar Item(string id, string title, GlyphKind glyph)
     {
         _items.Add(new ActivityBarItem(id, title, glyph));
@@ -38,6 +47,15 @@ public sealed class SideBar
 
     public IReadOnlyList<SideBarView> Views => _views;
 
+    /// <summary>内部:裁剪到指定项数(插件 Configure 失败的半装载回退,ADR-000300)。</summary>
+    internal void TrimTo(int count)
+    {
+        if (_views.Count > count)
+        {
+            _views.RemoveRange(count, _views.Count - count);
+        }
+    }
+
     public SideBar View(string id, string title, UIElement content)
     {
         _views.Add(new SideBarView(id, title, content));
@@ -55,6 +73,15 @@ public sealed class EditorArea
     private readonly List<EditorDocument> _documents = [];
 
     public IReadOnlyList<EditorDocument> Documents => _documents;
+
+    /// <summary>内部:裁剪到指定项数(插件 Configure 失败的半装载回退,ADR-000300)。</summary>
+    internal void TrimTo(int count)
+    {
+        if (_documents.Count > count)
+        {
+            _documents.RemoveRange(count, _documents.Count - count);
+        }
+    }
 
     public EditorArea Document(string id, string title, UIElement content)
     {
@@ -74,6 +101,15 @@ public sealed class BottomPanel
 
     public IReadOnlyList<PanelView> Views => _views;
 
+    /// <summary>内部:裁剪到指定项数(插件 Configure 失败的半装载回退,ADR-000300)。</summary>
+    internal void TrimTo(int count)
+    {
+        if (_views.Count > count)
+        {
+            _views.RemoveRange(count, _views.Count - count);
+        }
+    }
+
     public BottomPanel View(string id, string title, UIElement content)
     {
         _views.Add(new PanelView(id, title, content));
@@ -91,6 +127,15 @@ public sealed class StatusBar
     private readonly List<StatusBarItem> _items = [];
 
     public IReadOnlyList<StatusBarItem> Items => _items;
+
+    /// <summary>内部:裁剪到指定项数(插件 Configure 失败的半装载回退,ADR-000300)。</summary>
+    internal void TrimTo(int count)
+    {
+        if (_items.Count > count)
+        {
+            _items.RemoveRange(count, _items.Count - count);
+        }
+    }
 
     public StatusBar Item(string id, string text)
     {

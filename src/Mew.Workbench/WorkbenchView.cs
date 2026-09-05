@@ -81,8 +81,8 @@ internal sealed class WorkbenchView
             if (_workbench.CanRevealDocument(args.Pane.Component))
             {
                 // 0.20 菜单模型:命令注册进事件自带的 CommandScope,菜单项引用命令
-                var reveal = new Command("mew.revealDocument", "在侧边栏定位");
-                args.Commands.Register(reveal, () => _workbench.RevealDocument(args.Pane.Component!), null);
+                var reveal = MewCommands.Register(args.Commands, "mew.revealDocument", "在侧边栏定位",
+                    () => _workbench.RevealDocument(args.Pane.Component!));
                 args.Menu.AddItem(reveal);
             }
         };

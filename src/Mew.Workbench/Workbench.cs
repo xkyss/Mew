@@ -221,6 +221,28 @@ public sealed class Workbench
 
     internal StatusBar StatusBarModel => _statusBar;
 
+    /// <summary>五区贡献快照(插件 Configure 事务化的回退点,ADR-000300)。</summary>
+    public readonly record struct ContributionSnapshot(
+        int ActivityCount, int SideBarCount, int DocumentCount, int PanelCount, int StatusCount);
+
+    public ContributionSnapshot SnapshotContributions() => new(
+        _activityBar.Items.Count,
+        _sideBar.Views.Count,
+        _editorArea.Documents.Count,
+        _panel.Views.Count,
+        _statusBar.Items.Count);
+
+    /// <summary>回退到快照:插件 Configure 半途抛出时摘除其半份贡献,避免 Build 配对校验崩溃。</summary>
+    public void RollbackContributions(ContributionSnapshot snapshot)
+    {
+        _activityBar.TrimTo(snapshot.ActivityCount);
+        _sideBar.TrimTo(snapshot.SideBarCount);
+        _editorArea.TrimTo(snapshot.DocumentCount);
+        _panel.TrimTo(snapshot.PanelCount);
+        _statusBar.TrimTo(snapshot.StatusCount);
+    }
+
+
     internal SideBarView? ActiveSideBarView => _activeActivityId is null
         ? null
         : _sideBar.Views.Single(view => view.Id == _activeActivityId);
