@@ -2,6 +2,7 @@ using Aprillz.MewUI;
 using Aprillz.MewUI.Controls;
 using Aprillz.MewUI.MewDock;
 using Mew.Workbench;
+using System.Reflection;
 using Xunit;
 
 namespace Mew.Host.Tests;
@@ -90,5 +91,51 @@ public class MewDockShellTests
         shell.Tune();
 
         Assert.Equal(0, shell.ConfiguredTabCloseCount);
+        Assert.False(shell.ZoneStylesApplied); // 子树未就绪:注册未发生,守卫不置位
+    }
+
+    // ---- 0.20.2 触点语义核对（ADR-000300 票据 02）：名字存活 ≠ 行为不变,以下断言验证反射调参真实生效 ----
+
+    [Fact]
+    public void Tune_触点语义_模型级TabSetEnableMaximize与SplitterSize真实生效()
+    {
+        var docking = new DockingManager();
+        docking.AddDocumentPane("文档", new StackPanel(), "doc1");
+        var shell = new MewDockShell(docking);
+
+        shell.Tune();
+
+        var model = typeof(DockingManager)
+            .GetField("_model", BindingFlags.NonPublic | BindingFlags.Instance)
+            ?.GetValue(docking);
+        Assert.NotNull(model);
+        Assert.False((bool)model!.GetType().GetProperty("TabSetEnableMaximize")!.GetValue(model)!);
+        Assert.Equal(3.0, (double)model.GetType().GetProperty("SplitterSize")!.GetValue(model)!);
+    }
+
+    [Fact]
+    public void Tune_触点语义_子树就绪后边框覆盖样式注册成功()
+    {
+        var docking = new DockingManager();
+        docking.AddDocumentPane("文档", new StackPanel(), "doc1");
+        var shell = new MewDockShell(docking);
+
+        shell.Tune();
+
+        Assert.True(shell.ZoneStylesApplied);
+    }
+
+    [Fact]
+    public void Tune_触点语义_空停靠注册未发生_添加窗格后重试成功()
+    {
+        var docking = new DockingManager();
+        var shell = new MewDockShell(docking);
+        shell.Tune();
+        Assert.False(shell.ZoneStylesApplied);
+
+        docking.AddDocumentPane("文档", new StackPanel(), "doc1");
+        shell.Tune();
+
+        Assert.True(shell.ZoneStylesApplied); // 首个后续 Tune 补注册(守卫重试语义)
     }
 }

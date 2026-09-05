@@ -21,6 +21,9 @@ public sealed class MewDockShell
     /// <summary>已接线关闭悬浮的 tab 数（测试缝：断言 Tune 幂等不重复接线）。</summary>
     internal int ConfiguredTabCloseCount => _configuredTabClose.Count;
 
+    /// <summary>边框覆盖样式是否已成功注册（测试缝：子树未就绪时应为 false 并在后续 Tune 重试）。</summary>
+    internal bool ZoneStylesApplied => _zoneStylesApplied;
+
     public MewDockShell(DockingManager docking) => _docking = docking;
 
     /// <summary>

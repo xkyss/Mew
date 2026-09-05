@@ -4,13 +4,30 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] 反射触点逐项核对表落盘(触点 → 验证方式 → 结果)
-- [ ] 可无头验证项全部通过（测试或探针断言）
-- [ ] 不可无头项整理进 03 的手工走查清单
-- [ ] 失效项(如有)修复仅限 `MewDockShell`
-- [ ] 全量测试绿（137 + 103,允许等价改写）
+- [x] 反射触点逐项核对表落盘(触点 → 验证方式 → 结果)
+- [x] 可无头验证项全部通过（测试或探针断言）
+- [x] 不可无头项整理进 03 的手工走查清单
+- [x] 失效项(如有)修复仅限 `MewDockShell`
+- [x] 全量测试绿（137 + 103,允许等价改写）
 
 ## Comments
 
+
+## Comments
+
+- 触点核对表(0.20.2,无头可验证项):
+  | 触点 | 验证方式 | 结果 |
+  |---|---|---|
+  | `DockingManager._model` 反射 | 测试断言非 null | ✅ 存活 |
+  | `TabSetEnableMaximize=false` | Tune 后读模型属性 | ✅ 真实生效 |
+  | `SplitterSize=3` | Tune 后读模型属性 | ✅ 真实生效 |
+  | `StyleSheet.Define` 追加覆盖 | `ZoneStylesApplied` 断言(含空停靠重试语义) | ✅ 注册成功路径可用 |
+  | `FlexTabButton._closeButton` + 悬浮接线 | `ConfiguredTabCloseCount > 0` 且连调稳定 | ✅ 存活且接线 |
+  | `FlexTabSetView._maximizeButton` 隐藏 | 按钮创建时机依赖 arrange | → 03 走查 |
+  | `FlexSplitter.IsColumnAxis` 光标 | 依赖命中测试/悬浮 | → 03 走查 |
+  | `MewUIDockString` 表被停靠菜单消费 | 需打开真实菜单 | → 03 走查 |
+  | 原生弹窗后的菜单命令派发(ContextMenu.Commands) | 需真实点击 | → 03 走查 |
+- 新增内部观察点 `MewDockShell.ZoneStylesApplied`,3 个语义测试锁定(140 例全绿);失效项:无。
+- 不可无头项已并入 03 走查清单(共 4 项,外加 01 的访问键/View 切换文本显示)。
