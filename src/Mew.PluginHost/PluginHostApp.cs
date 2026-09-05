@@ -179,7 +179,9 @@ internal sealed class PluginHostApp
     private UIElement BuildLogPanel()
     {
         var text = string.Join("\n", PluginHostLog.SnapshotLines().Select(line => $"{line.Time:HH:mm:ss}  {line.Message}"));
-        return new MultiLineTextBox { Text = text, CanDrag = false, IsReadOnly = true, BorderThickness = 0, Wrap = true }.FontSize(12);
+        return new MultiLineTextBox { Text = text, CanDrag = false, IsReadOnly = true, BorderThickness = 0, Wrap = true }
+            .FontSize(12)
+            .WithTheme((theme, box) => box.Foreground(theme.Palette.WindowText));
     }
 
     /// <summary>插件生命周期日志：每个发现项的去向（加载成功/跳过/失败原因），成功项附 DLL 路径、大小、写入时间与模块类型，
