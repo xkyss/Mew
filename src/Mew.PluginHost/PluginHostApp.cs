@@ -40,6 +40,7 @@ internal sealed class PluginHostApp
     private StackPanel? _settingsContent;
     private PluginEnableStore _pluginEnables = null!;
     private IReadOnlyList<PluginDescriptor> _discoveredPlugins = [];
+    private ExtensionHostPluginAdminService _pluginAdmin = null!;
     private StackPanel? _pluginPanel;
     private string _pluginNotice = "";
     private StackPanel? _hotkeyPanel;
@@ -106,6 +107,11 @@ internal sealed class PluginHostApp
             return new ToolModuleContext(workbench, window.Handle, window, hotkeys, settings, capturingOverlay, theme, settingsSections);
         });
         LogPluginLifecycles();
+        // 插件管理 adapter（ADR-000204）：行来源 = 发现结果 + 本地只读缓存 + 实载集合，写走一次性 IPC
+        _pluginAdmin = new ExtensionHostPluginAdminService(
+            _discoveredPlugins, _pluginEnables,
+            () => _dllLoader?.Loaded.Select(x => x.Descriptor.Id).ToArray() ?? [],
+            (string id, bool enabled, out string? transportError) => EnablePluginIpc.TrySet(id, enabled, out transportError));
         // 将捕获的源通过管道注册到宿主（内存直连模式下 _ipcServer 为空则走管道）
         foreach (var src in CapturingOverlay.Captured.ToList())
         {
@@ -580,63 +586,24 @@ internal sealed class PluginHostApp
                 new Button().Content(new Label().Text("退出主界面进程")).CanDrag(false).OnClick(() => { _window.Close(); Environment.Exit(0); })
             ));
         }
-        const bool isJitAvailable = true; // 扩展主机本身为 JIT，DLL 可加载
-        // 扩展主机只管 T1/T2（dll 与非进程型插件）：exe 行（T3 独立进程）归宿主管理，此处不出现
-        var managed = _discoveredPlugins.Where(PluginDiscovery.IsExtensionHostManaged).ToList();
-        if (managed.Count == 0)
-        {
-            _pluginPanel.Add(new Label().Text("未发现插件（将 plugin.json 置于 %APPDATA%/Mew/Plugins/<id>/）").FontSize(12).WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground)));
-            return;
-        }
-        var loadedIds = _dllLoader?.Loaded.Select(x => x.Descriptor.Id).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
-        // 特殊容器永不进列表：宿主保留身份在此过滤
-        foreach (var desc in managed)
-        {
-            var health = desc.Health(isJitAvailable);
-            var enabled = _pluginEnables.IsEnabled(desc.Id);
-            // 行状态纯逻辑推导（ADR-000203）：策略 × 健康态 ×（T2 无崩溃语义）× 本会话是否仍加载
-            var row = PluginRowState.Derive(enabled, health, crashed: false, stillLoaded: loadedIds.Contains(desc.Id));
-            var titleColor = row.IsWarning ? ShellIcons.HotkeyWarning : theme.EditorArea.Foreground;
-            var title = new Label().Text($"{desc.Manifest.DisplayName} ({desc.Id}) v{desc.Manifest.Version}").WithTheme((_, l) => l.Foreground(titleColor));
-            var healthLabel = new Label().Text(row.StatusWord).FontSize(11).WithTheme((_, l) => l.Foreground(row.IsWarning ? ShellIcons.HotkeyWarning : theme.EditorArea.Foreground));
-            // 单动作：健康行启用/禁用开关，经 IPC 请求宿主落盘（ADR-000203 单写者），扩展主机不再本地 Save
-            var actionButton = new Button().Content(new Label().Text(row.ActionLabel)).CanDrag(false)
-                .OnClick(() => TogglePluginEnabled(desc.Id, enabled));
-            if (row.Action == PluginRowAction.None)
-                actionButton.Content(new Label().Text("—"));
-            var children = new List<Element> { title, healthLabel };
-            if (row.Hint is not null)
-                children.Add(new Label().Text(row.Hint).FontSize(11).WithTheme((_, l) => l.Foreground(ShellIcons.HotkeyWarning)));
-            if (desc.ValidationErrors.Count > 0)
-                children.Add(new Label().Text(string.Join("; ", desc.ValidationErrors)).FontSize(11).WithTheme((_, l) => l.Foreground(ShellIcons.HotkeyWarning)));
-            children.Add(actionButton);
-            _pluginPanel.Add(new StackPanel().Spacing(2).Children(children.ToArray()));
-        }
-        if (!string.IsNullOrEmpty(_pluginNotice))
+        const string emptyStateText = "未发现插件（将 plugin.json 置于 %APPDATA%/Mew/Plugins/<id>/）";
+        // 行区 = 共享插件管理面板（ADR-000204）：行渲染/动作路由只此一份；通知条仍归本进程（面板级内容不进共享模块）
+        var rowsPanel = new PluginAdminPanel(_pluginAdmin, _theme, emptyStateText, emptyStateFontSize: 12,
+            onApplied: (_, action, result) =>
+            {
+                _pluginNotice = result.Outcome switch
+                {
+                    PluginAdminOutcome.Ok => action == PluginRowAction.Enable ? "已启用（重启扩展主机后装载）" : "已禁用（重启扩展主机后生效）",
+                    PluginAdminOutcome.Rejected => $"宿主未生效：{result.Error}",
+                    _ => $"宿主未连接，操作未生效（{result.Error}）",
+                };
+                // 通知条在共享面板之外，整体重建让通知可见（面板自身的行刷新随后被本次重建覆盖，行为等价旧 TogglePluginEnabled）
+                RefreshPluginPanel();
+            });
+        rowsPanel.Spacing = 12;
+        rowsPanel.Refresh();
+        _pluginPanel.Add(rowsPanel);
+        if (!string.IsNullOrEmpty(_pluginNotice) && rowsPanel.RowCount > 0)
             _pluginPanel.Add(new Label().Text(_pluginNotice).FontSize(11).WithTheme((_, l) => l.Foreground(ShellIcons.HotkeyWarning)));
-    }
-
-    /// <summary>启用/禁用开关：经 IPC 请求宿主落盘 `plugins.json`，宿主确认后本地意图同步并刷新；
-    /// 宿主不可达时不本地写（避免双写竞争），仅提示。</summary>
-    private void TogglePluginEnabled(string id, bool currentlyEnabled)
-    {
-        var target = !currentlyEnabled;
-        _pluginNotice = "";
-        var ack = EnablePluginIpc.TrySet(id, target, out var transportError);
-        if (ack is { Ok: true })
-        {
-            // 宿主已确认落盘：同步本地意图并刷新（T2 生效时机 = 下次主界面启动，副提示由行态推导给出）
-            _pluginEnables.SetEnabled(id, ack.Enabled);
-            _pluginNotice = ack.Enabled ? "已启用（重启扩展主机后装载）" : "已禁用（重启扩展主机后生效）";
-        }
-        else if (ack is { Error: not null })
-        {
-            _pluginNotice = $"宿主未生效：{ack.Error}";
-        }
-        else
-        {
-            _pluginNotice = $"宿主未连接，操作未生效（{transportError}）";
-        }
-        RefreshPluginPanel();
     }
 }
