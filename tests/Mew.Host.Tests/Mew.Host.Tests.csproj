@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Mew.Host\Mew.Host.csproj" />
     <ProjectReference Include="..\..\src\Mew.Launcher\Mew.Launcher.csproj" />
     <ProjectReference Include="..\..\src\Mew.Workbench\Mew.Workbench.csproj" />
     <ProjectReference Include="..\..\src\Mew.PluginHost\Mew.PluginHost.csproj" />

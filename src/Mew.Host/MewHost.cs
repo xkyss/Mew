@@ -36,9 +36,8 @@ internal sealed class MewHost
     private TrayIcon? _tray;
     private IpcServer _ipcServer = null!;
     private PluginLifecycleEngine _lifecycleEngine = null!;
-    private readonly HashSet<string> _knownPluginIds = new(StringComparer.OrdinalIgnoreCase);
-    private readonly object _pluginEnableSync = new();
-    private StackPanel? _hostPluginRows;
+    private HostPluginAdminService _pluginAdmin = null!;
+    private PluginAdminPanel? _hostPluginPanel;
 
     internal void Run()
     {
@@ -81,8 +80,9 @@ internal sealed class MewHost
         var roots = PluginDiscovery.ResolvePluginRoots(settings.PluginDirs, userPluginsDir, installPluginsDir);
         Log($"插件目录：{string.Join("；", roots)}");
         var full = discovery.Discover(roots);
-        foreach (var d in full.Where(d => !PluginDiscovery.IsReservedHostId(d.Id)))
-            _knownPluginIds.Add(d.Id);
+        // 宿主管理名单：非保留 id（IPC 启用/禁用的 unknown-id 门收进 adapter，ADR-000204）
+        _pluginAdmin = new HostPluginAdminService(_lifecycleEngine, _pluginEnables,
+            full.Where(d => !PluginDiscovery.IsReservedHostId(d.Id)).Select(d => d.Id), Log);
         // 全量名单写入快照：扩展主机按单加载，不再自扫（快照缺失回退本地扫描）
         new PluginSnapshotStore().Save(full);
         Log($"插件快照已写入：{full.Count} 项");
@@ -161,15 +161,18 @@ internal sealed class MewHost
 
     private UIElement BuildHostPlaceholder()
     {
-        var pluginRows = new StackPanel().Spacing(4);
-        _hostPluginRows = pluginRows;
+        // 行区 = 共享插件管理面板（ADR-000204）：渲染/路由只此一份；页脚说明随行存在而渲染
+        var pluginPanel = new PluginAdminPanel(_pluginAdmin, _theme,
+            "无独立进程插件（entry.type=exe）；仅 DLL 插件时由扩展主机（主界面）管理",
+            footerText: "已崩溃不自动重拉，点行内「重启」或重启宿主恢复；崩溃标记不落盘");
+        _hostPluginPanel = pluginPanel;
         var content = new StackPanel().Padding(24).Spacing(12).Children(
             new Label().Text("Mew Host (AOT 常驻)").FontSize(16).Bold().WithTheme((_, l) => l.Foreground(_theme.EditorArea.Foreground)),
             new Label().Text($"版本 {AppVersion}  — 托盘与呼出浮层由宿主常驻，五区未启动，可手动打开主界面。").FontSize(12).WithTheme((_, l) => l.Foreground(_theme.EditorArea.Foreground)),
             new Button().Content(new Label().Text("打开主界面")).CanDrag(false).OnClick(() => EnsurePluginHostRunning()),
             new Button().Content(new Label().Text("重启主界面")).CanDrag(false).OnClick(() => RestartPluginHost()),
             new Label().Text("独立插件（T3，进程隔离，由宿主托管）").FontSize(14).Bold().WithTheme((_, l) => l.Foreground(_theme.EditorArea.Foreground)),
-            pluginRows
+            pluginPanel
         );
         RefreshHostPluginRows();
         return content;
@@ -182,67 +185,10 @@ internal sealed class MewHost
         try { _window.Show(null!); _window.Activate(); } catch { }
     }
 
-    /// <summary>重建宿主侧独立插件（T3）行：状态词/动作由 PluginRowState 推导（ADR-000203）。仅 UI 线程调用。</summary>
+    /// <summary>重建宿主侧独立插件（T3）行：状态词/动作由共享面板经 adapter 快照渲染（ADR-000204）。仅 UI 线程调用。</summary>
     private void RefreshHostPluginRows()
     {
-        if (_hostPluginRows is null) return;
-        var theme = _theme;
-        _hostPluginRows.Clear();
-        // Snapshot 内对每个插件回调 IsPluginEnabledLocked（引擎锁 → 启用锁单向取锁，避免反向死锁）
-        var states = _lifecycleEngine.Snapshot(IsPluginEnabledLocked);
-        if (states.Count == 0)
-        {
-            _hostPluginRows.Add(new Label().Text("无独立进程插件（entry.type=exe）；仅 DLL 插件时由扩展主机（主界面）管理").FontSize(11)
-                .WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground)));
-            return;
-        }
-        foreach (var state in states.OrderBy(s => s.Id, StringComparer.OrdinalIgnoreCase))
-        {
-            var desc = state.Descriptor;
-            var row = PluginRowState.Derive(state.Enabled, desc.Health(true), state.Crashed, stillLoaded: false);
-            var titleColor = row.IsWarning ? ShellIcons.HotkeyWarning : theme.EditorArea.Foreground;
-            var title = new Label().Text($"{desc.Manifest.DisplayName} ({desc.Id}) v{desc.Manifest.Version}").WithTheme((_, l) => l.Foreground(titleColor));
-            var healthLabel = new Label().Text(row.StatusWord).FontSize(11).WithTheme((_, l) => l.Foreground(row.IsWarning ? ShellIcons.HotkeyWarning : theme.EditorArea.Foreground));
-            var actionButton = new Button().Content(new Label().Text(row.ActionLabel)).CanDrag(false)
-                .OnClick(() => ApplyHostPluginAction(state.Id, row.Action));
-            if (row.Action == PluginRowAction.None)
-                actionButton.Content(new Label().Text("—"));
-            var children = new List<Element> { title, healthLabel };
-            if (desc.ValidationErrors.Count > 0)
-                children.Add(new Label().Text(string.Join("; ", desc.ValidationErrors)).FontSize(11).WithTheme((_, l) => l.Foreground(ShellIcons.HotkeyWarning)));
-            children.Add(actionButton);
-            _hostPluginRows.Add(new StackPanel().Spacing(2).Children(children.ToArray()));
-        }
-        _hostPluginRows.Add(new Label().Text("已崩溃不自动重拉，点行内「重启」或重启宿主恢复；崩溃标记不落盘").FontSize(11)
-            .WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground)));
-    }
-
-    private bool IsPluginEnabledLocked(string id)
-    {
-        lock (_pluginEnableSync) return _pluginEnables.IsEnabled(id);
-    }
-
-    /// <summary>宿主侧行动作（单动作原则）：宿主本就是 plugins.json 唯一写者，直接落盘 + 引擎立即生效（ADR-000203）。仅 UI 线程调用。</summary>
-    private void ApplyHostPluginAction(string id, PluginRowAction action)
-    {
-        switch (action)
-        {
-            case PluginRowAction.Disable:
-                lock (_pluginEnableSync) { _pluginEnables.SetEnabled(id, false); _pluginEnables.Save(); }
-                _lifecycleEngine.Stop(id);
-                Log($"独立插件已禁用并回收进程：{id}");
-                break;
-            case PluginRowAction.Enable:
-                lock (_pluginEnableSync) { _pluginEnables.SetEnabled(id, true); _pluginEnables.Save(); }
-                _lifecycleEngine.Start(id, out _);
-                Log($"独立插件已启用并拉起：{id}");
-                break;
-            case PluginRowAction.Restart:
-                _lifecycleEngine.Restart(id, out _);
-                Log($"独立插件已重启：{id}");
-                break;
-        }
-        RefreshHostPluginRows();
+        _hostPluginPanel?.Refresh();
     }
 
     internal bool IsPluginHostRunning => _pluginHostProcess is { HasExited: false };
@@ -416,21 +362,14 @@ internal sealed class MewHost
     }
 
     /// <summary>插件启用/禁用落盘入口（扩展主机经 IPC 请求，ADR-000203 单写者）：宿主是唯一写者。
-    /// T3（exe）由引擎托管立即生效（启用即拉起、禁用即杀）；T2/T1 只落意图，由扩展主机下次装载。</summary>
+    /// 与宿主 UI 行动作共用 adapter 同一条加锁路径（ADR-000204），unknown-id/保留 id 门在 adapter 内。
+    /// T3（exe）由引擎托管立即生效（启用即拉起、禁用即杀）；T2 只落意图，由扩展主机下次装载。</summary>
     private PluginEnableSetAckMessage OnPluginEnableSet(string id, bool enabled)
     {
-        if (PluginDiscovery.IsReservedHostId(id) || !_knownPluginIds.Contains(id))
-            return new PluginEnableSetAckMessage(false, $"未知插件：{id}", id, enabled);
-        _pluginEnables.SetEnabled(id, enabled);
-        _pluginEnables.Save();
-        Log(enabled ? $"插件已启用（宿主落盘）：{id}" : $"插件已禁用（宿主落盘）：{id}");
-        var state = _lifecycleEngine.GetState(id, _pluginEnables.IsEnabled);
-        if (state is not null)
-        {
-            if (enabled) _lifecycleEngine.Start(id, out _);
-            else _lifecycleEngine.Stop(id);
-        }
-        return new PluginEnableSetAckMessage(true, null, id, enabled);
+        var result = _pluginAdmin.Apply(id, enabled ? PluginRowAction.Enable : PluginRowAction.Disable);
+        return result.Outcome == PluginAdminOutcome.Ok
+            ? new PluginEnableSetAckMessage(true, null, id, enabled)
+            : new PluginEnableSetAckMessage(false, result.Error, id, enabled);
     }
 
     /// <summary>T3 插件进程拉起器（引擎 launcher）：解析清单入口为绝对路径并启动，包成进程句柄交给引擎托管。
