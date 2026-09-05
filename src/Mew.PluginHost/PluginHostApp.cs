@@ -172,7 +172,7 @@ internal sealed class PluginHostApp
         _windowIcon?.Dispose();
         DestroyWindowIcons();
 
-        void Quit() => Application.Quit();
+        void Quit() => Application.Shutdown();
     }
 
     /// <summary>底部面板「插件日志」视图：与 plugin-host.log 同源的启动期生命周期快照；整块只读多行文本，拖选复制。</summary>

@@ -322,12 +322,15 @@ public sealed class LauncherModule : IMewToolModule
             return;
         }
 
-        new ContextMenu(new Menu()
-            .Item("新建子分类", () => AddSubCategory(node.Id))
+        // 0.20 命令模型:处理器注册进菜单自带 CommandScope,菜单项引用命令
+        var categoryMenu = new ContextMenu(new Menu());
+        var categoryScope = categoryMenu.Commands;
+        categoryMenu.Menu
+            .Item(MewCommands.Register(categoryScope, "launcher.category.add", "新建子分类", () => AddSubCategory(node.Id)))
             .Separator()
-            .Item("重命名", () => RenameCategory(node.Id))
-            .Item("删除", () => DeleteCategory(node.Id)))
-            .ShowAt(tree, e.ScreenPosition);
+            .Item(MewCommands.Register(categoryScope, "launcher.category.rename", "重命名", () => RenameCategory(node.Id)))
+            .Item(MewCommands.Register(categoryScope, "launcher.category.delete", "删除", () => DeleteCategory(node.Id)));
+        categoryMenu.ShowAt(tree, e.ScreenPosition);
     }
 
     /// <summary>删除分类:确认(提示将失去该分类的启动项数量)→ 摘除归属(永不删项,子分类整棵子树一并摘除)→ 刷新树与列表。</summary>
@@ -659,10 +662,12 @@ public sealed class LauncherModule : IMewToolModule
     /// <summary>挂右键菜单(编辑 / 删除),右键时在鼠标位置弹出。</summary>
     private void AttachContextMenu(UIElement element, LauncherItem item)
     {
-        var menu = new ContextMenu(new Menu()
-            .Item("编辑", () => EditItem(item))
+        var menu = new ContextMenu(new Menu());
+        var itemScope = menu.Commands;
+        menu.Menu
+            .Item(MewCommands.Register(itemScope, "launcher.item.edit", "编辑", () => EditItem(item)))
             .Separator()
-            .Item("删除", () => DeleteItem(item)));
+            .Item(MewCommands.Register(itemScope, "launcher.item.delete", "删除", () => DeleteItem(item)));
         element.MouseUp += e =>
         {
             if (e.RightButton)

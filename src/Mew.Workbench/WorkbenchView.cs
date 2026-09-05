@@ -80,7 +80,10 @@ internal sealed class WorkbenchView
         {
             if (_workbench.CanRevealDocument(args.Pane.Component))
             {
-                args.Menu.Item("在侧边栏定位", () => _workbench.RevealDocument(args.Pane.Component!));
+                // 0.20 菜单模型:命令注册进事件自带的 CommandScope,菜单项引用命令
+                var reveal = new Command("mew.revealDocument", "在侧边栏定位");
+                args.Commands.Register(reveal, () => _workbench.RevealDocument(args.Pane.Component!), null);
+                args.Menu.AddItem(reveal);
             }
         };
         // 底部组标题栏已有 pin/× 独立按钮，分组菜单里去掉同义的自动隐藏/关闭，只留浮动等入口。

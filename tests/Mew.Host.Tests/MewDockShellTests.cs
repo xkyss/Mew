@@ -53,10 +53,10 @@ public class MewDockShellTests
     {
         MewDockShell.Localize();
         var menu = new ContextMenu();
-        menu.Item("浮动", () => { });
-        menu.Item("自动隐藏", () => { });
-        menu.Item("关闭", () => { });
-        menu.Item("关闭全部", () => { });
+        menu.AddItem("浮动", true);
+        menu.AddItem("自动隐藏", true);
+        menu.AddItem("关闭", true);
+        menu.AddItem("关闭全部", true);
 
         MewDockShell.PruneGroupMenu(menu);
 

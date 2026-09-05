@@ -31,17 +31,16 @@ public static class TitleBarBuilder
         var menuBar = new MenuBar()
             .Height(28)
             .DrawBottomSeparator(false)
-            .Background(Color.Transparent)
-            .Items(
-                new MenuItem("_File").Menu(
-                    new Menu()
-                        .Item("设置", openSettings)
-                        .Separator()
-                        .Item("退出", quit)),
-                new MenuItem("_View").Menu(BuildViewMenu(workbench)),
-                new MenuItem("_Help").Menu(
-                    new Menu().Item("关于", () => showAbout(window)))
-            );
+            .Background(Color.Transparent);
+        var scope = menuBar.Commands;
+        menuBar.Items(
+            SubMenu("_File", new Menu()
+                .Item(MewCommands.Register(scope, "mew.settings", "设置", openSettings))
+                .Separator()
+                .Item(MewCommands.Register(scope, "mew.quit", "退出", quit))),
+            SubMenu("_View", BuildViewMenu(workbench, scope)),
+            SubMenu("_Help", new Menu().Item(MewCommands.Register(scope, "mew.about", "关于", () => showAbout(window))))
+        );
 
         window.TitleBarLeft.Add(menuBar);
 
@@ -56,23 +55,27 @@ public static class TitleBarBuilder
         return themeButton;
     }
 
-    /// <summary>查看菜单:显示/隐藏 侧边栏、底部面板、活动栏、状态栏;菜单项文本随当前显隐状态反转。</summary>
-    public static Menu BuildViewMenu(Workbench workbench) => new Menu()
-        .Add(ViewToggleItem(workbench, workbench.ToggleSideBar, () => workbench.IsSideBarVisible, "侧边栏"))
-        .Add(ViewToggleItem(workbench, workbench.TogglePanel, () => workbench.IsPanelVisible, "底部面板"))
-        .Add(ViewToggleItem(workbench, workbench.ToggleActivityBar, () => workbench.IsActivityBarVisible, "活动栏"))
-        .Add(ViewToggleItem(workbench, workbench.ToggleStatusBar, () => workbench.IsStatusBarVisible, "状态栏"));
+    /// <summary>顶层菜单项 + 子菜单（0.20 菜单模型:MenuItem.Text + SubMenu 引用）。</summary>
+    private static MenuItem SubMenu(string text, Menu subMenu) => new MenuItem(text).Menu(subMenu);
 
-    /// <summary>构造「(显示/隐藏)xx」菜单项:文本反映当前状态,点击切换后文本反转。</summary>
-    private static MenuItem ViewToggleItem(Workbench workbench, Action toggle, Func<bool> isVisible, string label)
+    /// <summary>查看菜单:显示/隐藏 侧边栏、底部面板、活动栏、状态栏;菜单项文本随当前显隐状态反转。</summary>
+    public static Menu BuildViewMenu(Workbench workbench, CommandScope scope) => new Menu()
+        .Add(ViewToggleItem(workbench, scope, workbench.ToggleSideBar, () => workbench.IsSideBarVisible, "侧边栏"))
+        .Add(ViewToggleItem(workbench, scope, workbench.TogglePanel, () => workbench.IsPanelVisible, "底部面板"))
+        .Add(ViewToggleItem(workbench, scope, workbench.ToggleActivityBar, () => workbench.IsActivityBarVisible, "活动栏"))
+        .Add(ViewToggleItem(workbench, scope, workbench.ToggleStatusBar, () => workbench.IsStatusBarVisible, "状态栏"));
+
+    /// <summary>构造「(显示/隐藏)xx」菜单项:文本反映当前状态,点击切换后文本反转（点击经命令派发）。</summary>
+    private static MenuItem ViewToggleItem(Workbench workbench, CommandScope scope, Action toggle, Func<bool> isVisible, string label)
     {
-        var item = new MenuItem("");
+        var command = new Command($"mew.view.{label}", "");
+        scope.Register(command, toggle, null);
+        var item = new MenuItem(command);
         void UpdateText()
         {
             item.Text = isVisible() ? $"隐藏{label}" : $"显示{label}";
         }
 
-        item.Click = toggle;
         workbench.PresentationChanged += UpdateText;
         UpdateText();
         return item;

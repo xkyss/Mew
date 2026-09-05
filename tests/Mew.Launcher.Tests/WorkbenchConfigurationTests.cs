@@ -26,7 +26,7 @@ public class WorkbenchConfigurationTests
         var shell = workbench.Build();
         var dock = FindByType(shell, typeof(DockingManager)) as DockingManager
             ?? throw new InvalidOperationException("未找到 DockingManager。");
-        var menu = TitleBarBuilder.BuildViewMenu(workbench);
+        var menu = TitleBarBuilder.BuildViewMenu(workbench, new CommandScope());
         var sideBarItem = Assert.IsType<MenuItem>(menu.Items[0]);
         var panelItem = Assert.IsType<MenuItem>(menu.Items[1]);
         var sideBarPane = dock.Panes.Single(pane => pane.Component == "launch");
@@ -51,7 +51,7 @@ public class WorkbenchConfigurationTests
             .ActivityBar(bar => bar.Item("launch", "启动", GlyphKind.Hamburger))
             .SideBar(side => side.View("launch", "启动", new StackPanel()));
         workbench.Build();
-        var menu = TitleBarBuilder.BuildViewMenu(workbench);
+        var menu = TitleBarBuilder.BuildViewMenu(workbench, new CommandScope());
         var sideBarItem = Assert.IsType<MenuItem>(menu.Items[0]);
 
         Assert.Equal("隐藏侧边栏", sideBarItem.Text);

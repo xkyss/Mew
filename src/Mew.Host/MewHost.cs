@@ -17,7 +17,7 @@ namespace Mew.Host;
 /// </summary>
 internal sealed class MewHost
 {
-    private const string AppVersion = "v0.2.5";
+    private const string AppVersion = "v0.3.0";
     private const string OverlayHotkeyLabel = "浮层呼出键";
 
     private Window _window = null!;
@@ -155,7 +155,7 @@ internal sealed class MewHost
         void Quit()
         {
             _tray?.Dispose();
-            Application.Quit();
+            Application.Shutdown();
         }
     }
 
