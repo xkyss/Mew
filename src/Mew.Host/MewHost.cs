@@ -75,11 +75,14 @@ internal sealed class MewHost
         _pluginEnables = new PluginEnableStore();
         _pluginEnables.Load();
         var discovery = new PluginDiscovery();
-        var userPluginsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Mew", "Plugins");
-        var installPluginsDir = Path.Combine(AppContext.BaseDirectory, "Plugins");
-        var roots = PluginDiscovery.ResolvePluginRoots(settings.PluginDirs, userPluginsDir, installPluginsDir);
-        Log($"插件目录：{string.Join("；", roots)}");
-        var full = discovery.Discover(roots);
+        // 单一主插件目录（ADR-000301）：缺省用户目录,settings.pluginDir 可改
+        var primaryPluginDir = string.IsNullOrWhiteSpace(settings.PluginDir)
+            ? PluginDiscovery.DefaultUserPluginsDir
+            : settings.PluginDir!;
+        foreach (var removed in settings.MigratedOutPluginDirs)
+            Log($"插件目录迁移：原附加目录 {removed} 不再单独扫描，如需继续使用请以链接挂入主目录（mklink /D 需开发者模式，/J 免特权限本机卷）");
+        Log($"插件目录：{primaryPluginDir}");
+        var full = discovery.Discover(primaryPluginDir);
         // 宿主管理名单：非保留 id（IPC 启用/禁用的 unknown-id 门收进 adapter，ADR-000204）
         _pluginAdmin = new HostPluginAdminService(_lifecycleEngine, _pluginEnables,
             full.Where(d => !PluginDiscovery.IsReservedHostId(d.Id)).Select(d => d.Id), Log);

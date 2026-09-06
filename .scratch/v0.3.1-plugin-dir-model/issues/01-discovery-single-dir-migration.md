@@ -4,14 +4,20 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] 扫描根单值化：`ResolvePluginRoots`/`GetExtraPluginDirs`/安装目录根及其调用点（宿主 + 扩展主机）移除
-- [ ] settings 迁移：`pluginDirs` → `pluginDir`（首项优先、缺省回退、损坏回退），沿用一次性迁移先例
-- [ ] 被移除的附加目录写宿主日志提示「人工以链接挂入主目录」
-- [ ] 测试：单根发现 + 链接子目录枚举/穿透 + 重复 id 先到优先；迁移往返三态
-- [ ] 既有插件发现测试按单根模型等价改写,全量测试绿
-- [ ] 快照写入/推送流程不变（宿主唯一发现来源,ADR-000202 不动）
+- [x] 扫描根单值化：`ResolvePluginRoots`/`GetExtraPluginDirs`/安装目录根及其调用点（宿主 + 扩展主机）移除
+- [x] settings 迁移：`pluginDirs` → `pluginDir`（首项优先、缺省回退、损坏回退），沿用一次性迁移先例
+- [x] 被移除的附加目录写宿主日志提示「人工以链接挂入主目录」
+- [x] 测试：单根发现 + 链接子目录枚举/穿透 + 重复 id 先到优先；迁移往返三态
+- [x] 既有插件发现测试按单根模型等价改写,全量测试绿
+- [x] 快照写入/推送流程不变（宿主唯一发现来源,ADR-000202 不动）
 
 ## Comments
 
+
+## Comments
+
+- 已完成。`PluginDiscovery`：`Discover(string root)` 单根(容器根与「根本身即插件目录」两种形态都保留),新增 `DefaultUserPluginsDir`;`ResolvePluginRoots`/`GetExtraPluginDirs`/`ExtraDirsEnvVar`/两参重载退役。`SettingsService`:`PluginDirs` → `PluginDir` 单值,`MigrateLegacyPluginDirs` 一次性迁移(首项进 pluginDir,余项进 `MigratedOutPluginDirs` 供宿主日志提示,元素类型不符整列放弃)。
+- 两处接线(宿主/扩展主机)改为单值 + 缺省回退;宿主把 MigratedOutPluginDirs 逐条写日志提示人工建链。
+- 测试:发现测试按单根模型改写并新增 **链接子目录枚举/穿透**(无头 symlink,无特权环境自动降级为仅真实目录断言)、`DefaultUserPluginsDir`;settings 迁移三态(列表→单值+余项记录/类型不符整列放弃/往返)。141 + 104 绿。

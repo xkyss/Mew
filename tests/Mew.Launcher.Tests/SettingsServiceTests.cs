@@ -124,34 +124,54 @@ public class SettingsServiceTests : IDisposable
     }
 
     [Fact]
-    public void PluginDirs_读写往返_置空移除键()
+    public void PluginDir_读写往返_置空移除键()
     {
         var service = new SettingsService(TempFile("settings.json"));
-        Assert.Null(service.PluginDirs);
+        Assert.Null(service.PluginDir);
 
-        service.PluginDirs = new List<string> { @"D:\dev-plugins", @"E:\mxd-out" };
+        service.PluginDir = @"D:\mew-plugins";
         service.Save();
 
         var loaded = new SettingsService(TempFile("settings.json"));
         loaded.Load();
-        Assert.Equal(new List<string> { @"D:\dev-plugins", @"E:\mxd-out" }, loaded.PluginDirs);
+        Assert.Equal(@"D:\mew-plugins", loaded.PluginDir);
 
-        loaded.PluginDirs = null;
+        loaded.PluginDir = null;
         loaded.Save();
         var reloaded = new SettingsService(TempFile("settings.json"));
         reloaded.Load();
-        Assert.Null(reloaded.PluginDirs);
+        Assert.Null(reloaded.PluginDir);
     }
 
     [Fact]
-    public void PluginDirs_类型不符_静默回退null_不抛()
+    public void Load_旧pluginDirs列表_迁移为单值_余项记入MigratedOut()
+    {
+        File.WriteAllText(TempFile("settings.json"),
+            """{ "pluginDirs": ["C:\\Users\\x\\AppData\\Roaming\\Mew\\Plugins", "\\\\wsl.localhost\\dev\\out"] }""");
+
+        var loaded = new SettingsService(TempFile("settings.json"));
+        loaded.Load();
+
+        // 首项成为主目录;其余为旧附加目录,提示人工以链接挂入（ADR-000301）
+        Assert.Equal("C:\\Users\\x\\AppData\\Roaming\\Mew\\Plugins", loaded.PluginDir);
+        Assert.Equal(["\\\\wsl.localhost\\dev\\out"], loaded.MigratedOutPluginDirs);
+        // 旧键移除且落盘(重读仍为迁移后形态)
+        var reloaded = new SettingsService(TempFile("settings.json"));
+        reloaded.Load();
+        Assert.Equal(loaded.PluginDir, reloaded.PluginDir);
+        Assert.Empty(reloaded.MigratedOutPluginDirs);
+    }
+
+    [Fact]
+    public void Load_旧pluginDirs列表_元素类型不符_整列放弃_回退默认()
     {
         File.WriteAllText(TempFile("settings.json"), """{ "pluginDirs": ["ok", 123] }""");
 
         var loaded = new SettingsService(TempFile("settings.json"));
         loaded.Load();
 
-        Assert.Null(loaded.PluginDirs);
+        Assert.Null(loaded.PluginDir);
+        Assert.Empty(loaded.MigratedOutPluginDirs);
     }
 
     [Fact]

@@ -75,20 +75,21 @@ internal sealed class PluginHostApp
 
         settings.Load();
 
-        // 插件发现：与宿主同目录扫描，展示在设置→插件列表
+        // 插件发现：单一主目录（ADR-000301），展示在设置→插件列表
         _pluginEnables = new PluginEnableStore();
         _pluginEnables.Load();
-        var userPluginsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Mew", "Plugins");
-        var installPluginsDir = Path.Combine(AppContext.BaseDirectory, "Plugins");
+        var primaryPluginDir = string.IsNullOrWhiteSpace(_settings.PluginDir)
+            ? PluginDiscovery.DefaultUserPluginsDir
+            : _settings.PluginDir!;
         // 单一来源：优先宿主快照（缺失或损坏回退本地扫描，保证双击独立可用）
         var fromSnapshot = new PluginSnapshotStore().Load();
         _discoveredPlugins = fromSnapshot.Count > 0
             ? fromSnapshot
-            : new PluginDiscovery().Discover(PluginDiscovery.ResolvePluginRoots(_settings.PluginDirs, userPluginsDir, installPluginsDir));
+            : new PluginDiscovery().Discover(primaryPluginDir);
 
         PluginHostLog.Write(fromSnapshot.Count > 0
             ? $"插件来源：宿主快照（{fromSnapshot.Count} 项）"
-            : $"插件来源：本地扫描（快照缺失/损坏，回退；根={string.Join("；", PluginDiscovery.ResolvePluginRoots(_settings.PluginDirs, userPluginsDir, installPluginsDir))})");
+            : $"插件来源：本地扫描（快照缺失/损坏，回退；主目录={primaryPluginDir}）");
 
         workbench.Theme(tc => tc.SetMode(LoadThemeMode()).SetAccent(Accent.Blue));
 
@@ -348,12 +349,12 @@ internal sealed class PluginHostApp
     private string DefaultSeedDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Mew", "Plugins");
     private string InstallPluginsDir => Path.Combine(AppContext.BaseDirectory, "Plugins");
 
-    /// <summary>可编辑的目录列表：未配置时以用户目录为种子；第一项为默认目录。</summary>
-    private List<string> EditablePluginDirs() => new(_settings.PluginDirs is { Count: > 0 } ? _settings.PluginDirs : [DefaultSeedDir]);
+    /// <summary>中间态（02 将整体替换为单行主目录 + 选择器）：单值模型下的目录节兼容。</summary>
+    private List<string> EditablePluginDirs() => new(string.IsNullOrWhiteSpace(_settings.PluginDir) ? [DefaultSeedDir] : [_settings.PluginDir!]);
 
     private void SavePluginDirs(List<string> dirs)
     {
-        _settings.PluginDirs = dirs;
+        _settings.PluginDir = dirs.FirstOrDefault(d => !string.IsNullOrWhiteSpace(d));
         _settings.Save();
         RefreshPluginPanel();
     }

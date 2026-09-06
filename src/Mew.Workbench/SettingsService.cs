@@ -33,9 +33,11 @@ public sealed class SettingsService : ISettingsService
     /// <summary>宿主级设置:呼出热键是否启用；缺省（未配置）视为启用。</summary>
     public bool OverlayHotkeyEnabled { get => GetBool("overlayHotkeyEnabled", true); set => SetBool("overlayHotkeyEnabled", value); }
 
-    /// <summary>宿主级设置:插件目录列表（设置→插件→插件目录维护的完整列表，第一项为默认目录；
-    /// 为空或缺省时回退到用户目录；安装目录由宿主恒追加）。与 `MEW_PLUGINS_EXTRA` 合并生效。</summary>
-    public List<string>? PluginDirs { get => GetStringArray("pluginDirs"); set => SetStringArray("pluginDirs", value); }
+    /// <summary>宿主级设置:插件主目录（唯一扫描根,缺省用户目录由调用方回退;ADR-000301）。</summary>
+    public string? PluginDir { get => GetString("pluginDir"); set => SetString("pluginDir", value); }
+
+    /// <summary>v0.3.1 目录模型迁移中被移出配置的旧附加目录（宿主日志提示人工以链接挂入主目录）；每次 Load 重置。</summary>
+    public IReadOnlyList<string> MigratedOutPluginDirs { get; private set; } = [];
 
     /// <summary>读取工具模块设置节:无该节、节类型不匹配或反序列化失败时返回 null(损坏的模块节不阻塞启动)。</summary>
     public T? ReadSection<T>(string moduleId, JsonTypeInfo<T> typeInfo) where T : class
@@ -68,6 +70,7 @@ public sealed class SettingsService : ISettingsService
                 ? JsonNode.Parse(File.ReadAllText(FilePath)) as JsonObject ?? []
                 : [];
             MigrateLegacyFlatSettings();
+            MigrateLegacyPluginDirs();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
@@ -106,6 +109,40 @@ public sealed class SettingsService : ISettingsService
             section["itemsViewMode"] = legacy.DeepClone();
             Save();
         }
+    }
+
+    /// <summary>
+    /// v0.3.1 目录模型迁移:旧 pluginDirs 列表 → 单值 pluginDir（取首项,ADR-000301）。
+    /// 首项之后的条目即旧「附加目录」,记入 MigratedOutPluginDirs 供宿主日志提示人工建链接;
+    /// 元素类型不符时整列放弃（与 GetStringArray 的静默回退一致）。
+    /// </summary>
+    private void MigrateLegacyPluginDirs()
+    {
+        MigratedOutPluginDirs = [];
+        if (!_root.TryGetPropertyValue("pluginDirs", out var legacy) || legacy is not JsonArray arr)
+        {
+            return;
+        }
+
+        var entries = new List<string>();
+        try
+        {
+            entries = arr.Where(e => e is not null)
+                .Select(e => e!.GetValue<string>())
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .ToList();
+        }
+        catch (InvalidOperationException)
+        {
+        }
+
+        _root.Remove("pluginDirs");
+        if (entries.Count > 0)
+        {
+            _root["pluginDir"] = entries[0];
+        }
+        MigratedOutPluginDirs = entries.Skip(1).ToList();
+        Save();
     }
 
     private string? GetString(string key)
@@ -157,36 +194,5 @@ public sealed class SettingsService : ISettingsService
     private void SetBool(string key, bool value)
     {
         _root[key] = value;
-    }
-
-    private List<string>? GetStringArray(string key)
-    {
-        if (!_root.TryGetPropertyValue(key, out var node) || node is not JsonArray arr)
-        {
-            return null;
-        }
-
-        try
-        {
-            return arr.Where(e => e is not null).Select(e => e!.GetValue<string>()).ToList();
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or FormatException)
-        {
-            return null; // 数组元素类型不符时静默回退 null
-        }
-    }
-
-    private void SetStringArray(string key, List<string>? value)
-    {
-        if (value is null)
-        {
-            _root.Remove(key);
-        }
-        else
-        {
-            var arr = new JsonArray();
-            foreach (var s in value) arr.Add(s);
-            _root[key] = arr;
-        }
     }
 }

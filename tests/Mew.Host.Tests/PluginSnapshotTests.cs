@@ -27,7 +27,7 @@ public class PluginSnapshotTests
             Directory.CreateDirectory(Path.Combine(userDir, "bad"));
             File.WriteAllText(Path.Combine(userDir, "bad", "plugin.json"), "{ not json }");
 
-            var discovered = new PluginDiscovery().Discover(userDir, installDir);
+            var discovered = new PluginDiscovery().Discover(userDir);
             var snapPath = Path.Combine(Path.GetTempPath(), "mew-snap-" + Guid.NewGuid().ToString("N") + ".json");
             try
             {
@@ -80,7 +80,7 @@ public class PluginSnapshotTests
             WriteManifest(Path.Combine(userDir, "host-impersonate", "plugin.json"), "mew-plugin-host", "冒名", "0.1.0", "exe", "h.exe");
             WriteManifest(Path.Combine(userDir, "real", "plugin.json"), "real", "Real", "0.1.0", "exe", "r.exe");
 
-            var discovered = new PluginDiscovery().Discover(userDir, installDir);
+            var discovered = new PluginDiscovery().Discover(userDir);
             Assert.Contains(discovered, d => d.Id == "mew-plugin-host");
 
             var snapPath = Path.Combine(Path.GetTempPath(), "mew-snap-res-" + Guid.NewGuid().ToString("N") + ".json");
@@ -104,7 +104,7 @@ public class PluginSnapshotTests
         try
         {
             WriteManifest(Path.Combine(userDir, "miss", "plugin.json"), "miss", "Miss", "0.1.0", "dll", "missing.dll");
-            var discovered = new PluginDiscovery().Discover(userDir, installDir);
+            var discovered = new PluginDiscovery().Discover(userDir);
 
             var snapPath = Path.Combine(Path.GetTempPath(), "mew-snap-load-" + Guid.NewGuid().ToString("N") + ".json");
             try

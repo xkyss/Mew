@@ -9,41 +9,17 @@ namespace Mew.Workbench.Plugins;
 /// </summary>
 public sealed class PluginDiscovery
 {
-    /// <summary>环境变量：额外插件目录（`Path.PathSeparator` 分隔），用于开发期指向构建输出、免复制联调。</summary>
-    public const string ExtraDirsEnvVar = "MEW_PLUGINS_EXTRA";
+    /// <summary>默认插件主目录:%APPDATA%\Mew\Plugins（未配置 settings.pluginDir 时的唯一扫描根,ADR-000301）。</summary>
+    public static string DefaultUserPluginsDir =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Mew", "Plugins");
 
-    /// <summary>读取环境变量中的额外插件目录（不存在/不可访问的条目由扫描阶段忽略）。</summary>
-    public static IReadOnlyList<string> GetExtraPluginDirs()
-    {
-        var raw = Environment.GetEnvironmentVariable(ExtraDirsEnvVar);
-        if (string.IsNullOrWhiteSpace(raw)) return [];
-        return raw.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
-    }
-
-    /// <summary>合并完整的扫描根序列：环境变量在前，其次配置列表（为空/缺省时以用户目录为种子），安装目录恒为末尾。
-    /// 去空、去重（大小写不敏感）；重复 id 以靠前的目录为准。</summary>
-    public static IReadOnlyList<string> ResolvePluginRoots(IEnumerable<string>? configuredDirs, string userPluginsDir, string installPluginsDir)
-    {
-        var configured = (configuredDirs ?? [])
-            .Where(d => !string.IsNullOrWhiteSpace(d))
-            .Select(d => d.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        if (configured.Count == 0) configured.Add(userPluginsDir);
-        return GetExtraPluginDirs().Concat(configured).Append(installPluginsDir)
-            .Where(d => !string.IsNullOrWhiteSpace(d))
-            .Select(d => d.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
-
-    /// <summary>发现并校验所有清单，返回按发现顺序的描述符列表（仅扫描传入的两目录；额外目录由调用方显式传入）。</summary>
-    public IReadOnlyList<PluginDescriptor> Discover(string userPluginsDir, string installPluginsDir)
-        => Discover([userPluginsDir, installPluginsDir]);
-
-    /// <summary>发现并校验所有清单（多根），顺序即优先级（重复 id 以靠前者为准）。
+    /// <summary>
+    /// 发现单个主目录下的全部插件：根本身含 plugin.json 时直接解析（单个插件目录形态），
+    /// 否则扫描一层 <c>&lt;id&gt;/</c> 子目录——**链接子目录（junction/symlink）同样被枚举与穿透**，
+    /// 开发期把构建输出以链接挂入主目录即完成联调（ADR-000301）。
+    /// 容错单清单损坏与 id 冲突，先发现者为准、后发现的重复 id 标记为 Duplicate（子目录按名称序）。
     /// </summary>
-    public IReadOnlyList<PluginDescriptor> Discover(IEnumerable<string> roots)
+    public IReadOnlyList<PluginDescriptor> Discover(string root)
     {
         var all = new List<PluginDescriptor>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -79,31 +55,26 @@ public sealed class PluginDiscovery
             all.Add(new PluginDescriptor(manifest, manifestPath, finalErrors, isDuplicate));
         }
 
-        void Scan(string root)
+        if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root)) return all;
+
+        // 单个插件目录：本身即含 plugin.json（如链接进来的构建输出），直接解析
+        var directManifest = Path.Combine(root, "plugin.json");
+        if (File.Exists(directManifest))
         {
-            if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root)) return;
-
-            // 单个插件目录：本身即含 plugin.json（如 Mxd 构建输出），直接解析
-            var directManifest = Path.Combine(root, "plugin.json");
-            if (File.Exists(directManifest))
-            {
-                AddDescriptor(root, directManifest);
-                return;
-            }
-
-            string[] subDirs;
-            try { subDirs = Directory.GetDirectories(root); }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return; }
-
-            foreach (var dir in subDirs.OrderBy(d => d, StringComparer.OrdinalIgnoreCase))
-            {
-                var manifestPath = Path.Combine(dir, "plugin.json");
-                if (!File.Exists(manifestPath)) continue;
-                AddDescriptor(dir, manifestPath);
-            }
+            AddDescriptor(root, directManifest);
+            return all;
         }
 
-        foreach (var root in roots) Scan(root);
+        string[] subDirs;
+        try { subDirs = Directory.GetDirectories(root); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return all; }
+
+        foreach (var dir in subDirs.OrderBy(d => d, StringComparer.OrdinalIgnoreCase))
+        {
+            var manifestPath = Path.Combine(dir, "plugin.json");
+            if (!File.Exists(manifestPath)) continue;
+            AddDescriptor(dir, manifestPath);
+        }
 
         return all;
     }

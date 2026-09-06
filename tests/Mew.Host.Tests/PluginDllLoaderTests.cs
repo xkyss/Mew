@@ -24,7 +24,7 @@ public class PluginDllLoaderTests
             File.WriteAllText(Path.Combine(tmp, "plug-b", "b.dll"), "dummy");
 
             var discovery = new PluginDiscovery();
-            var discovered = discovery.Discover(tmp, Path.Combine(tmp, "_empty"));
+            var discovered = discovery.Discover(tmp);
             var enableStore = new PluginEnableStore(Path.Combine(Path.GetTempPath(), "mew-en-" + Guid.NewGuid() + ".json"));
             enableStore.Load();
             enableStore.SetEnabled("plug-b", false);
@@ -46,7 +46,7 @@ public class PluginDllLoaderTests
         {
             WriteManifest(Path.Combine(tmp, "miss", "plugin.json"), "miss", "Miss", "0.1.0", "dll", "missing.dll");
             var discovery = new PluginDiscovery();
-            var discovered = discovery.Discover(tmp, Path.Combine(tmp, "_empty"));
+            var discovered = discovery.Discover(tmp);
             var enableStore = new PluginEnableStore(Path.Combine(Path.GetTempPath(), "mew-en2-" + Guid.NewGuid() + ".json"));
             enableStore.Load();
             var loader = new Mew.PluginHost.PluginDllLoader();
@@ -68,7 +68,7 @@ public class PluginDllLoaderTests
         {
             WriteManifest(Path.Combine(tmp, "bad", "plugin.json"), "Bad_ID", "Bad", "bad", "dll", "bad.dll");
             var discovery = new PluginDiscovery();
-            var discovered = discovery.Discover(tmp, Path.Combine(tmp, "_empty"));
+            var discovered = discovery.Discover(tmp);
             var enableStore = new PluginEnableStore(Path.Combine(Path.GetTempPath(), "mew-en3-" + Guid.NewGuid() + ".json"));
             enableStore.Load();
             var loader = new Mew.PluginHost.PluginDllLoader();
@@ -92,7 +92,7 @@ public class PluginDllLoaderTests
             File.Copy(self, Path.Combine(tmp, "multi", "plug.dll"), true);
             WriteManifest(Path.Combine(tmp, "multi", "plugin.json"), "second-fake", "Second", "0.1.0", "dll", "plug.dll");
 
-            var discovered = new PluginDiscovery().Discover(tmp, Path.Combine(tmp, "_empty"));
+            var discovered = new PluginDiscovery().Discover(tmp);
             var enableStore = new PluginEnableStore(Path.Combine(Path.GetTempPath(), "mew-en-m-" + Guid.NewGuid() + ".json"));
             enableStore.Load();
             var loader = new Mew.PluginHost.PluginDllLoader();
@@ -119,7 +119,7 @@ public class PluginDllLoaderTests
             File.Copy(self, Path.Combine(tmp, "nomatch", "plug.dll"), true);
             WriteManifest(Path.Combine(tmp, "nomatch", "plugin.json"), "ghost", "Ghost", "0.1.0", "dll", "plug.dll");
 
-            var discovered = new PluginDiscovery().Discover(tmp, Path.Combine(tmp, "_empty"));
+            var discovered = new PluginDiscovery().Discover(tmp);
             var enableStore = new PluginEnableStore(Path.Combine(Path.GetTempPath(), "mew-en-g-" + Guid.NewGuid() + ".json"));
             enableStore.Load();
             var loader = new Mew.PluginHost.PluginDllLoader();
@@ -145,7 +145,7 @@ public class PluginDllLoaderTests
             File.Copy(self, Path.Combine(tmp, "amb", "plug.dll"), true);
             WriteManifest(Path.Combine(tmp, "amb", "plugin.json"), "todo", "Todo", "0.1.0", "dll", "plug.dll");
 
-            var discovered = new PluginDiscovery().Discover(tmp, Path.Combine(tmp, "_empty"));
+            var discovered = new PluginDiscovery().Discover(tmp);
             var enableStore = new PluginEnableStore(Path.Combine(Path.GetTempPath(), "mew-en-a-" + Guid.NewGuid() + ".json"));
             enableStore.Load();
             var loader = new Mew.PluginHost.PluginDllLoader();
@@ -188,7 +188,7 @@ public class PluginDllLoaderTests
             File.Copy(contract, Path.Combine(tmp, "shared", "Mew.Workbench.dll"), true);
             WriteManifest(Path.Combine(tmp, "shared", "plugin.json"), "second-fake", "Second", "0.1.0", "dll", "plug.dll");
 
-            var discovered = new PluginDiscovery().Discover(tmp, Path.Combine(tmp, "_empty"));
+            var discovered = new PluginDiscovery().Discover(tmp);
             var enableStore = new PluginEnableStore(Path.Combine(Path.GetTempPath(), "mew-en-s-" + Guid.NewGuid() + ".json"));
             enableStore.Load();
             var loader = new Mew.PluginHost.PluginDllLoader();
@@ -241,7 +241,7 @@ public class PluginDllLoaderTests
             File.Copy(self, Path.Combine(tmp, "launcher", "Mew.Launcher.dll"), true);
             WriteManifest(Path.Combine(tmp, "launcher", "plugin.json"), "launcher", "启动项", "1.0.0", "dll", "Mew.Launcher.dll");
 
-            var discovered = new PluginDiscovery().Discover(tmp, Path.Combine(tmp, "_empty"));
+            var discovered = new PluginDiscovery().Discover(tmp);
             var enableStore = new PluginEnableStore(Path.Combine(Path.GetTempPath(), "mew-en-l-" + Guid.NewGuid() + ".json"));
             enableStore.Load();
             var loader = new Mew.PluginHost.PluginDllLoader();
