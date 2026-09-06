@@ -41,8 +41,9 @@ dotnet run --project src/Mew.Host/Mew.Host.csproj
 dotnet run --project src/Mew.PluginHost/Mew.PluginHost.csproj
 ```
 
-> 主界面不再内置任何工具模块：本地联调把插件目录指向 Launcher 构建输出
-> （`设置 → 插件 → 插件目录` 加一行，或 `MEW_PLUGINS_EXTRA`），否则打开是只有设置的空壳。
+> 主界面不再内置任何工具模块：本地联调把构建输出以**链接**挂进插件主目录
+> （`mklink /J %APPDATA%\Mew\Plugins\launcher <构建输出目录>`，指 WSL 路径用 `mklink /D` 并开启开发者模式），
+> 否则打开是只有设置的空壳。
 
 ## 发布（双 exe）
 
@@ -63,33 +64,27 @@ dotnet publish src/Mew.Launcher -c Release -r win-x64 -o publish/Plugins/launche
 
 ## 插件放置
 
-扫描目录（递归一层）：
+**单一主插件目录**（ADR-000301，默认用户目录，可在 `设置 → 插件` 修改）：
 
 ```
-%APPDATA%\Mew\Plugins\<id>\plugin.json   # 用户目录
-<exe-dir>\Plugins\<id>\plugin.json       # 安装目录
+<主目录>\<id>\plugin.json   # 每个子目录 = 一个插件；链接子目录同样被扫描（开发联调通道）
 ```
 
-额外插件目录（开发期免复制联调）：两种方式，合并生效。最终扫描顺序 = 环境变量 → 配置列表 → 安装目录
-（重复 `id` 以靠前的目录为准）：
+修改主目录：`设置 → 插件 → 插件目录 → 修改`（文件夹选择器），重启宿主后生效。
+卸载 = 删除主目录下对应插件子目录。
 
-1. **设置页**：`设置 → 插件 → 插件目录`，完整可配置的目录列表，第一项为默认目录：每行可 `设为默认`/
-   `删除`，底部输入框可添加（单插件目录或 `<id>/` 根目录均可）。落盘于 `settings.json` 根节
-   `pluginDirs`；列表为空/缺省时回退到用户目录（`%APPDATA%\Mew\Plugins`）；`安装目录`
-   （`<exe-dir>\Plugins`）随包内置、恒为末尾。目录增减需重启宿主（刷新快照）与主界面（加载 DLL）
-   生效，不存在的目录会被忽略并标出。
-2. **环境变量** `MEW_PLUGINS_EXTRA`（多目录用 `;` Windows / `:` Linux 分隔，`Path.PathSeparator`），
-   宿主启动时并入扫描并记入 `host.log`。额外目录支持两种形态：
+开发期免复制联调（ADR-000301）：把构建输出以**链接**挂进主目录，改代码后只需
+`dotnet build` + 重启主界面（T2 的 ALC 限制），无需复制、无需重启宿主：
 
 ```powershell
-# 直接指向单个插件目录（本身含 plugin.json，如 Mxd 构建输出）
-$env:MEW_PLUGINS_EXTRA="D:\code\Mxd\.build\Mxd.UI\bin\Debug\net10.0-windows"
-# 或指向含多个 <id>/ 子目录的根目录
-$env:MEW_PLUGINS_EXTRA="D:\dev-plugins"
+# 本机卷路径：junction 免特权
+mklink /J "%APPDATA%\Mew\Plugins\mxd" "D:\code\Mxd\.build\Mxd.UI\bin\Debug\net10.0-windows"
+# WSL/UNC 目标：目录符号链接，需开发者模式（或管理员）
+mklink /D "%APPDATA%\Mew\Plugins\mxd" "\\wsl.localhost\Ubuntu-24.04\home\xkyii\code\Mxd\.build\Mxd.UI\bin\Debug\net10.0-windows"
 ```
 
-指向构建输出时：改代码后只需 `dotnet build` + 重启主界面（T2 的 ALC 限制），无需复制、无需重启宿主
-（首次指向新目录需重启宿主以刷新快照）。
+旧 `settings.json` 的 `pluginDirs` 列表会在启动时自动迁移为单值 `pluginDir`（取首项），
+其余条目由 `host.log` 提示人工以链接挂入。
 
 `plugin.json` 最小示例（`T3` 独立进程）：
 
