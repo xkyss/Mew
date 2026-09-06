@@ -343,99 +343,72 @@ internal sealed class PluginHostApp
         var panel = new StackPanel().Padding(24).Spacing(12);
         _pluginPanel = panel;
         RefreshPluginPanel();
-        return panel;
+        // 整页滚动:目录与插件行多时超高内容不被窗口高度截断
+        return new ScrollViewer { Content = panel, VerticalScroll = ScrollMode.Auto };
     }
 
-    private string DefaultSeedDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Mew", "Plugins");
-    private string InstallPluginsDir => Path.Combine(AppContext.BaseDirectory, "Plugins");
+    /// <summary>目录反馈标签（选择/校验失败时显示,其余隐藏不占位）。</summary>
+    private Label? _dirFeedback;
 
-    /// <summary>中间态（02 将整体替换为单行主目录 + 选择器）：单值模型下的目录节兼容。</summary>
-    private List<string> EditablePluginDirs() => new(string.IsNullOrWhiteSpace(_settings.PluginDir) ? [DefaultSeedDir] : [_settings.PluginDir!]);
-
-    private void SavePluginDirs(List<string> dirs)
+    /// <summary>目录节（ADR-000301 单一主目录模型）：当前路径 + 修改（文件夹选择器）+ 反馈 + 精简说明。</summary>
+    private void BuildPluginDirsSection(WorkbenchThemeContext theme)
     {
-        _settings.PluginDir = dirs.FirstOrDefault(d => !string.IsNullOrWhiteSpace(d));
+        if (_pluginPanel is null) return;
+        var current = string.IsNullOrWhiteSpace(_settings.PluginDir)
+            ? PluginDiscovery.DefaultUserPluginsDir
+            : _settings.PluginDir!;
+        _dirFeedback = BuildPluginDirsSection(_pluginPanel, theme, current, PickPluginDir);
+    }
+
+    /// <summary>目录节构造（静态便于无头测试）：返回反馈标签供调用方在失败时点亮。</summary>
+    internal static Label BuildPluginDirsSection(StackPanel panel, WorkbenchThemeContext theme, string currentDir, Action pickPluginDir)
+    {
+        panel.Add(new Label().Text("插件目录").FontSize(14).Bold().WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground)));
+
+        var currentLabel = new Label().Text(currentDir).FontSize(12).WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground));
+        var editButton = new Button().Content(new Label().Text("修改")).CanDrag(false).OnClick(pickPluginDir);
+        panel.Add(new StackPanel().Orientation(Orientation.Horizontal).Spacing(8).Children(currentLabel, editButton));
+
+        var feedback = new Label().Text("").FontSize(11).WithTheme((_, l) => l.Foreground(ShellIcons.HotkeyWarning));
+        feedback.IsVisible = false; // 空态不占位
+        panel.Add(feedback);
+
+        panel.Add(new Label()
+            .Text("修改后重启宿主生效。开发期可把构建输出以链接挂入主目录：mklink /D 需开发者模式（可指 WSL 路径），mklink /J 免特权限本机卷。")
+            .FontSize(11).WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground)));
+        return feedback;
+    }
+
+    /// <summary>修改主目录：托管文件夹选择器 → 校验存在性/重复 → 落盘并刷新（重启宿主后生效）。</summary>
+    private void PickPluginDir()
+    {
+        var picked = FileDialog.SelectFolder(new FolderDialogOptions
+        {
+            Title = "选择插件主目录",
+            InitialDirectory = Directory.Exists(_settings.PluginDir) ? _settings.PluginDir : PluginDiscovery.DefaultUserPluginsDir,
+            Owner = _window,
+        });
+        if (string.IsNullOrWhiteSpace(picked)) return;
+        if (string.Equals(picked, _settings.PluginDir, StringComparison.OrdinalIgnoreCase))
+        {
+            ShowDirFeedback("与当前主目录相同");
+            return;
+        }
+        if (!Directory.Exists(picked))
+        {
+            ShowDirFeedback("目录不存在，将被忽略");
+            return;
+        }
+        _settings.PluginDir = picked;
         _settings.Save();
         RefreshPluginPanel();
     }
 
-    private void BuildPluginDirsSection(WorkbenchThemeContext theme)
+    private void ShowDirFeedback(string message)
     {
-        if (_pluginPanel is null) return;
-        _pluginPanel.Add(new Label().Text("插件目录").FontSize(14).Bold().WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground)));
-        var dirs = EditablePluginDirs();
-        for (var i = 0; i < dirs.Count; i++)
-            AddEditableDirRow(dirs, i);
-        AddLockedDirRow(InstallPluginsDir, "安装目录（随包内置）");
-
-        var feedback = new Label().Text("").FontSize(11).WithTheme((_, l) => l.Foreground(ShellIcons.HotkeyWarning));
-        var input = new TextBox { Placeholder = @"新增目录，如 D:\dev-plugins", CanDrag = false }.Width(380);
-        var addButton = new Button().Content(new Label().Text("添加")).CanDrag(false).OnClick(() =>
-        {
-            var dir = input.Text?.Trim();
-            if (string.IsNullOrEmpty(dir))
-            {
-                feedback.Text = "请输入目录路径";
-                return;
-            }
-            var current = EditablePluginDirs();
-            if (current.Contains(dir, StringComparer.OrdinalIgnoreCase)
-                || string.Equals(dir, InstallPluginsDir, StringComparison.OrdinalIgnoreCase))
-            {
-                feedback.Text = "目录已在列表中";
-                return;
-            }
-            current.Add(dir);
-            SavePluginDirs(current);
-        });
-        _pluginPanel.Add(new StackPanel().Orientation(Orientation.Horizontal).Spacing(8).Children(input, addButton));
-        _pluginPanel.Add(feedback);
-        _pluginPanel.Add(new Label().Text("至少保留一项，第一项为默认目录，重复 id 以靠前的目录为准；增减后需重启宿主（刷新快照）与主界面（加载 DLL）；不存在的目录会被忽略").FontSize(11).WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground)));
-
-        void AddEditableDirRow(List<string> list, int index)
-        {
-            var dir = list[index];
-            var exists = Directory.Exists(dir);
-            var tag = index == 0 ? "默认" : $"#{index + 1}";
-            var pathLabel = new Label().Text(dir).FontSize(12).WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground));
-            var tagLabel = new Label().Text(exists ? tag : $"{tag}（不存在，将被忽略）").FontSize(11)
-                .WithTheme((_, l) => l.Foreground(exists ? theme.EditorArea.Foreground : ShellIcons.HotkeyWarning));
-            var row = new StackPanel().Spacing(2).Children(pathLabel, tagLabel);
-            var buttons = new StackPanel().Orientation(Orientation.Horizontal).Spacing(8).Children(row);
-            if (index > 0)
-            {
-                var defaultButton = new Button().Content(new Label().Text("设为默认")).CanDrag(false).OnClick(() =>
-                {
-                    var current = EditablePluginDirs();
-                    var target = current.FirstOrDefault(d => string.Equals(d, dir, StringComparison.OrdinalIgnoreCase));
-                    if (target is null) return;
-                    current.Remove(target);
-                    current.Insert(0, target);
-                    SavePluginDirs(current);
-                });
-                buttons.Add(defaultButton);
-            }
-            if (list.Count > 1)
-            {
-                var removeButton = new Button().Content(new Label().Text("删除")).CanDrag(false).OnClick(() =>
-                {
-                    var current = EditablePluginDirs();
-                    current.RemoveAll(d => string.Equals(d, dir, StringComparison.OrdinalIgnoreCase));
-                    SavePluginDirs(current);
-                });
-                buttons.Add(removeButton);
-            }
-            _pluginPanel!.Add(buttons);
-        }
-
-        void AddLockedDirRow(string dir, string tag)
-        {
-            var exists = Directory.Exists(dir);
-            var pathLabel = new Label().Text(dir).FontSize(12).WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground));
-            var tagLabel = new Label().Text(exists ? tag : $"{tag}（不存在，将被忽略）").FontSize(11)
-                .WithTheme((_, l) => l.Foreground(exists ? theme.EditorArea.Foreground : ShellIcons.HotkeyWarning));
-            _pluginPanel!.Add(new StackPanel().Spacing(2).Children(pathLabel, tagLabel));
-        }
+        if (_dirFeedback is not { } label) return;
+        label.Text = message;
+        label.IsVisible = true;
     }
 
     private void OnPluginHostPreviewKeyDown(KeyEventArgs e)

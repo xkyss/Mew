@@ -4,14 +4,20 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] 目录节 = 当前路径 + 「修改」（文件夹选择器）+ 隐藏式反馈 + 精简说明（含两条建链路径）
-- [ ] 「设为默认/删除/添加/锁定行/优先级文案」退役,`EditablePluginDirs`/`SavePluginDirs` 列表机制移除
-- [ ] 主目录修改写 settings 单值并刷新面板,重启宿主生效的提示可见
-- [ ] 整页滚动容器包裹,超高可滚
-- [ ] 反馈空态不占位;无 DLL 插件空态保留引导文案
-- [ ] 无头测试:目录节构建包含路径展示与修改入口;全量测试绿
+- [x] 目录节 = 当前路径 + 「修改」（文件夹选择器）+ 隐藏式反馈 + 精简说明（含两条建链路径）
+- [x] 「设为默认/删除/添加/锁定行/优先级文案」退役,`EditablePluginDirs`/`SavePluginDirs` 列表机制移除
+- [x] 主目录修改写 settings 单值并刷新面板,重启宿主生效的提示可见
+- [x] 整页滚动容器包裹,超高可滚
+- [x] 反馈空态不占位;无 DLL 插件空态保留引导文案
+- [x] 无头测试:目录节构建包含路径展示与修改入口;全量测试绿
 
 ## Comments
 
+
+## Comments
+
+- 已完成。目录节 = 单行主目录 + 「修改」（`FileDialog.SelectFolder(FolderDialogOptions)` 托管选择器,带 Owner/InitialDirectory）+ 校验反馈（同目录/不存在,初始隐藏不占位）+ 精简说明（重启生效 + 两条建链路径）。「设为默认/删除/添加/锁定行/优先级文案」与 `EditablePluginDirs`/`SavePluginDirs` 列表机制全部退役。
+- 整页 `ScrollViewer { Content, VerticalScroll = Auto }` 包裹（LauncherModule 列表同款）。
+- 测试:目录节构造提炼为静态（面板/主题/当前目录/回调入参,返回反馈标签）,2 个无头用例锁路径展示、修改入口、说明文案、反馈隐藏/点亮;选择器对话框本体为运行期行为,进 04 走查。
