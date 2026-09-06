@@ -110,7 +110,7 @@ internal sealed class MewHost
 
         // 托盘与浮层为常驻能力，必须可用
         window.Content = BuildHostPlaceholder();
-        window.Closing += e => { e.Cancel = true; window.Hide(); };
+        window.Closing += e => { e.Cancel = true; window.HideToTray(); };
 
         window.Loaded += () =>
         {

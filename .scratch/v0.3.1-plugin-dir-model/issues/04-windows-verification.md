@@ -20,3 +20,4 @@
 ## Comments
 
 - 2026-09-05(WSL 侧准备完成):票据 01-03 已落地——单根发现、settings 迁移、目录节单行化、链接扫描测试锁定,相关测试全绿(143 + 104)。本票为唯一剩余门槛,待 Windows 环境执行;与 v0.3.0 走查票(03)同机合并执行。注意:链接联调前先开 Windows 开发者模式(或以管理员建一次链接);迁移只做 settings 单值化,不自动建链接。
+- 2026-09-06 走查发现并修复:托盘重开主界面后点右上 X 关不掉——0.20 下 Hide() 看 MewUI 内部可见态,而托盘路径(宿主 TryShowProcessWindow)经 Win32 直接显示、内部态未同步,Hide 空操作。修复:NativeChromeWindow 新增 HideToTray()(Hide + Win32 IsWindowVisible 兜底),宿主与扩展主机的 Closing 处理器统一换用;复现序列(启动→X→Win32 重开→X)修复后两轮均正确隐藏。Mew.Host.Tests 143 全绿。

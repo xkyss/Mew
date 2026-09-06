@@ -144,12 +144,16 @@ internal sealed class PluginHostApp
         window.Closing += e =>
         {
             e.Cancel = true;
-            window.Hide();
-            // 扩展主机隐藏而非退出，宿主常驻可重新拉起
+            window.HideToTray();
+            // 扩展主机隐藏而非退出，宿主常驻可重新拉起（HideToTray:Win32 兜底防托盘重开后关不掉）
         };
 
         window.Loaded += () =>
         {
+            // 0.20 迁移:Application.Run 不再自动显示窗口,显式置可见(Show + IsVisible 双保险)
+            window.IsVisible = true;
+            window.Show(null!);
+            PluginHostLog.Write($"窗口 Show 后 IsVisible={window.IsVisible}");
             workbench.RefreshPresentation();
             ApplyWindowIcon(window);
             if (Application.Current is { } app)

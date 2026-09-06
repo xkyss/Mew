@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Aprillz.MewUI;
 using Aprillz.MewUI.Controls;
 using Aprillz.MewUI.Rendering;
@@ -25,6 +26,24 @@ public sealed class NativeChromeWindow : Window
     private readonly Button _minimizeBtn;
     private readonly Button _maximizeBtn;
     private Theme? _theme;
+
+    /// <summary>
+    /// 托盘语义的隐藏(ADR-000202:关 = 隐藏,进程保留)。0.20 语义补丁:经 Win32 显示
+    /// (宿主托盘重开路径)后 MewUI 内部可见态仍为 false,此时 Hide() 会空操作导致关不掉——
+    /// Hide 之后再以 Win32 兜底,确保窗口真正离屏。
+    /// </summary>
+    public void HideToTray()
+    {
+        Hide();
+        if (IsWindowVisible(Handle))
+        {
+            ShowWindow(Handle, SwHide);
+        }
+    }
+
+    private const int SwHide = 0;
+    [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
     public NativeChromeWindow()
     {
