@@ -12,8 +12,9 @@ using Icon = System.Drawing.Icon;
 namespace Mew.Host;
 
 /// <summary>
-/// 宿主(Mew.Host.exe, AOT 常驻)：仅承载 Overlay/托盘/全局热键/设置根节/插件发现与 IPC 路由，不承载 Workbench 五区。
-/// 五区由 Mew.PluginHost(JIT) 承载，宿主按需拉起并探活。
+/// 宿主(Mew.Host.exe, AOT 常驻)：仅承载 Overlay/托盘/全局热键/插件发现与 IPC 路由，不承载 Workbench 五区。
+/// 五区由 Mew.PluginHost(JIT) 承载，宿主按需拉起并探活。主窗口仅作托盘/热键/告警的隐藏基础设施，
+/// 插件管理统一在扩展主机设置→插件页（T3 行经 IPC 拉取，ADR-000303）。
 /// </summary>
 internal sealed class MewHost
 {
@@ -21,13 +22,10 @@ internal sealed class MewHost
     private const string OverlayHotkeyLabel = "浮层呼出键";
 
     private Window _window = null!;
-    private WorkbenchThemeContext _theme = null!;
-    private WorkbenchType _workbenchForTheme = null!;
     private SettingsService _settings = null!;
     private HotkeyService _hotkeys = null!;
     private OverlayWindow _overlayWindow = null!;
     private PluginEnableStore _pluginEnables = null!;
-    private IReadOnlyList<PluginDescriptor> _discoveredPlugins = [];
     private string _overlayHotkey = null!;
     private Icon? _windowIcon;
     private IntPtr _windowLargeIcon;
@@ -37,7 +35,6 @@ internal sealed class MewHost
     private IpcServer _ipcServer = null!;
     private PluginLifecycleEngine _lifecycleEngine = null!;
     private HostPluginAdminService _pluginAdmin = null!;
-    private PluginAdminPanel? _hostPluginPanel;
 
     internal void Run()
     {
@@ -46,17 +43,13 @@ internal sealed class MewHost
             .Resizable(400, 300);
 
         _window = window;
-        _workbenchForTheme = new WorkbenchType();
-        var theme = _workbenchForTheme.ThemeContext;
-        _theme = theme;
+        var theme = new WorkbenchType().ThemeContext;
         var settings = new SettingsService();
         _settings = settings;
         var hotkeys = new HotkeyService();
         _hotkeys = hotkeys;
         _lifecycleEngine = new PluginLifecycleEngine(LaunchPluginProcess);
-        // 引擎状态变化可能来自后台线程（进程退出/IPC 断连），经自窗口消息转到 UI 线程刷新插件行
-        _lifecycleEngine.PluginStateChanged += _ => PostMessage(window.Handle, WmRefreshPluginRows, 0, 0);
-        var ipcServer = new IpcServer(hotkeys, settings, OnOverlayHotkeySet, OnPluginEnableSet);
+        var ipcServer = new IpcServer(hotkeys, settings, OnOverlayHotkeySet, OnPluginEnableSet, FetchPluginRows, OnPluginAdminAction);
         _ipcServer = ipcServer;
         ipcServer.ClientDisconnected += id =>
         {
@@ -97,10 +90,9 @@ internal sealed class MewHost
             && string.Equals(d.Manifest.Entry.Type, "exe", StringComparison.OrdinalIgnoreCase)
             && _pluginEnables.IsEnabled(d.Id)).ToList();
         _lifecycleEngine.ReconcileStartup(enabledExe);
-        // 宿主侧只消费独立进程插件（exe）用于窗口展示；运行期 DLL 由扩展主机代管
-        _discoveredPlugins = full.Where(d => !PluginDiscovery.IsReservedHostId(d.Id)
+        var t3Plugins = full.Where(d => !PluginDiscovery.IsReservedHostId(d.Id)
             && string.Equals(d.Manifest.Entry.Type, "exe", StringComparison.OrdinalIgnoreCase)).ToList();
-        Log($"宿主托管 T3 插件：{_discoveredPlugins.Count} 项（启用 {enabledExe.Count} 项已拉起）");
+        Log($"宿主托管 T3 插件：{t3Plugins.Count} 项（启用 {enabledExe.Count} 项已拉起）");
 
         // 首启直接隐藏到托盘：以 0 透明度进入 Run，窗口创建并 show 但全程不可见（消除"一闪而过"）。
         // 关键：Loaded 里所有初始化（图标/热键/托盘）都必须在仍为 0 透明度时做完，先 Hide 再恢复不透明——
@@ -108,8 +100,11 @@ internal sealed class MewHost
         window.Opacity = 0;
         var preShowHandle = window.Handle;
 
-        // 托盘与浮层为常驻能力，必须可用
-        window.Content = BuildHostPlaceholder();
+        // 窗口仅是托盘/热键/告警的隐藏基础设施（ADR-000303）：插件管理在扩展主机设置→插件页；
+        // 内容只为 Warn 告警路径亮出时给出说明
+        window.Content = new StackPanel().Padding(24).Spacing(8).Children(
+            new Label().Text("Mew 宿主常驻中").FontSize(14).Bold(),
+            new Label().Text("此窗口仅在告警时亮出。插件管理在主界面 设置→插件；托盘可打开/重启主界面。").FontSize(11));
         window.Closing += e => { e.Cancel = true; window.HideToTray(); };
 
         window.Loaded += () =>
@@ -122,7 +117,7 @@ internal sealed class MewHost
             Log(settings.OverlayHotkeyEnabled
                 ? (overlayHotkeyRegistered ? $"呼出热键已注册：{_overlayHotkey}" : $"呼出热键注册失败：{_overlayHotkey}（可能被占用或句柄无效）")
                 : "呼出热键已禁用（设置→热键可重新启用）");
-            _tray = new TrayIcon(window.Handle, Quit, EnsurePluginHostRunning, RestartPluginHost, ShowHostPluginManager, () => _overlayWindow.ToggleOverlay());
+            _tray = new TrayIcon(window.Handle, Quit, EnsurePluginHostRunning, RestartPluginHost, () => _overlayWindow.ToggleOverlay());
             _tray.Add();
             // 宿主启动即拉起主界面（ADR-000202 的常驻干净让位给开箱即用；崩溃仍不自愈，需手动重启）
             EnsurePluginHostRunning();
@@ -147,7 +142,6 @@ internal sealed class MewHost
             if (args is not Win32NativeMessageEventArgs e) return;
             if (e.Msg == HotkeyService.WmHotkey) { Log($"收到热键消息 id={e.WParam}"); _hotkeys.Dispatch((int)e.WParam); args.Handled = true; }
             else if (e.Msg == TrayIcon.WmCallback && _tray is not null) { _tray.HandleCallback((uint)e.WParam, (uint)e.LParam); args.Handled = true; }
-            else if (e.Msg == WmRefreshPluginRows) { RefreshHostPluginRows(); args.Handled = true; }
         };
 
         Application.Run(window);
@@ -162,36 +156,17 @@ internal sealed class MewHost
         }
     }
 
-    private UIElement BuildHostPlaceholder()
-    {
-        // 行区 = 共享插件管理面板（ADR-000204）：渲染/路由只此一份；页脚说明随行存在而渲染
-        var pluginPanel = new PluginAdminPanel(_pluginAdmin, _theme,
-            "无独立进程插件（entry.type=exe）；仅 DLL 插件时由扩展主机（主界面）管理",
-            footerText: "已崩溃不自动重拉，点行内「重启」或重启宿主恢复；崩溃标记不落盘");
-        _hostPluginPanel = pluginPanel;
-        var content = new StackPanel().Padding(24).Spacing(12).Children(
-            new Label().Text("Mew Host (AOT 常驻)").FontSize(16).Bold().WithTheme((_, l) => l.Foreground(_theme.EditorArea.Foreground)),
-            new Label().Text($"版本 {AppVersion}  — 托盘与呼出浮层由宿主常驻，五区未启动，可手动打开主界面。").FontSize(12).WithTheme((_, l) => l.Foreground(_theme.EditorArea.Foreground)),
-            new Button().Content(new Label().Text("打开主界面")).CanDrag(false).OnClick(() => EnsurePluginHostRunning()),
-            new Button().Content(new Label().Text("重启主界面")).CanDrag(false).OnClick(() => RestartPluginHost()),
-            new Label().Text("独立插件（T3，进程隔离，由宿主托管）").FontSize(14).Bold().WithTheme((_, l) => l.Foreground(_theme.EditorArea.Foreground)),
-            pluginPanel
-        );
-        RefreshHostPluginRows();
-        return content;
-    }
+    /// <summary>独立插件（T3）行拉取（扩展主机经 IPC 请求，ADR-000303）：宿主 adapter 快照为唯一权威行来源。</summary>
+    private PluginRowsAckMessage FetchPluginRows() =>
+        new(_pluginAdmin.Snapshot().Select(PluginAdminRowDto.FromRow).ToList(), null);
 
-    /// <summary>托盘「插件管理」入口：亮出宿主窗口（含独立插件行的管理区），不依赖扩展主机活着。</summary>
-    private void ShowHostPluginManager()
+    /// <summary>独立插件行内动作落点（扩展主机经 IPC 请求，ADR-000303）：与宿主进程内动作共用同一条 adapter 加锁路径。</summary>
+    private PluginAdminActionAckMessage OnPluginAdminAction(string id, string action)
     {
-        RefreshHostPluginRows();
-        try { _window.Show(null!); _window.Activate(); } catch { }
-    }
-
-    /// <summary>重建宿主侧独立插件（T3）行：状态词/动作由共享面板经 adapter 快照渲染（ADR-000204）。仅 UI 线程调用。</summary>
-    private void RefreshHostPluginRows()
-    {
-        _hostPluginPanel?.Refresh();
+        if (!PluginAdminRowDto.TryParseAction(action, out var rowAction))
+            return new PluginAdminActionAckMessage(false, $"未知动作：{action}", id, action);
+        var result = _pluginAdmin.Apply(id, rowAction);
+        return new PluginAdminActionAckMessage(result.Outcome == PluginAdminOutcome.Ok, result.Error, id, action);
     }
 
     internal bool IsPluginHostRunning => _pluginHostProcess is { HasExited: false };
@@ -458,11 +433,8 @@ internal sealed class MewHost
     }
 
     private const uint WmSetIcon = 0x0080;
-    /// <summary>自窗口刷新插件行消息（WM_APP+2）：引擎状态变化可能来自后台线程，经 PostMessage 转到 UI 线程处理。</summary>
-    private const uint WmRefreshPluginRows = 0x8002;
     private static readonly IntPtr IconSmall = IntPtr.Zero;
     private static readonly IntPtr IconBig = new(1);
-    [DllImport("user32.dll")] private static extern bool PostMessage(nint hWnd, uint msg, nint wParam, nint lParam);
     [DllImport("user32.dll")] private static extern bool EnumWindows(NativeEnumWindowsProc callback, int lParam);
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(nint hwnd, out int processId);
     [DllImport("user32.dll")] private static extern nint GetWindow(nint hwnd, uint cmd);

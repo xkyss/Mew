@@ -41,6 +41,7 @@ internal sealed class PluginHostApp
     private PluginEnableStore _pluginEnables = null!;
     private IReadOnlyList<PluginDescriptor> _discoveredPlugins = [];
     private ExtensionHostPluginAdminService _pluginAdmin = null!;
+    private HostProxyPluginAdminService? _hostProxyAdmin;
     private StackPanel? _pluginPanel;
     private string _pluginNotice = "";
     private StackPanel? _hotkeyPanel;
@@ -461,12 +462,23 @@ internal sealed class PluginHostApp
             return;
         }
 
+        // 冲突预检：本进程已注册热键先点名，宿主侧冲突仍由 IPC ack 兜底
+        var owner = _hotkeys.FindOwner(hotkey);
+        if (owner is not null)
+        {
+            _hotkeyNotice = $"与{owner}的已注册热键冲突";
+            RefreshHotkeyPanel();
+            return;
+        }
+
         ApplyOverlayHotkey(hotkey, enabled: true);
     }
 
     private void ApplyOverlayHotkey(string? hotkey, bool enabled)
     {
-        // 先落盘（宿主未运行时重启后生效），再尽力 IPC 实时应用
+        // 先落盘（宿主未运行时重启后生效），再尽力 IPC 实时应用；IPC 报错则回滚落盘值与旧键一致
+        var previousHotkey = _settings.OverlayHotkey;
+        var previousEnabled = _settings.OverlayHotkeyEnabled;
         if (enabled && !string.IsNullOrWhiteSpace(hotkey))
             _settings.OverlayHotkey = hotkey;
         _settings.OverlayHotkeyEnabled = enabled;
@@ -478,10 +490,18 @@ internal sealed class PluginHostApp
         {
             { Ok: true, Enabled: true } => $"已生效：{ack.Hotkey}",
             { Ok: true } => "呼出热键已禁用（托盘仍可呼出浮层）",
-            { Error: not null } => ack.Error,
+            { Error: not null } => Rollback(ack.Error),
             _ => $"宿主未连接，已保存（{transportError}），重启宿主后生效",
         };
         RefreshHotkeyPanel();
+
+        string Rollback(string error)
+        {
+            _settings.OverlayHotkey = previousHotkey;
+            _settings.OverlayHotkeyEnabled = previousEnabled;
+            _settings.Save();
+            return error;
+        }
     }
 
     private UIElement BuildHotkeyPanel()
@@ -502,18 +522,28 @@ internal sealed class PluginHostApp
         var enabled = _settings.OverlayHotkeyEnabled;
         var hotkey = string.IsNullOrWhiteSpace(_settings.OverlayHotkey) ? HotkeyService.DefaultOverlayHotkey : _settings.OverlayHotkey;
         var display = enabled ? hotkey : $"{hotkey}（已禁用）";
-        var toggle = new Button().Content(new Label().Text(enabled ? "禁用" : "启用")).CanDrag(false)
-            .OnClick(() => ApplyOverlayHotkey(enabled ? hotkey : _settings.OverlayHotkey, enabled: !enabled));
+        var toggle = new ToggleSwitch().IsChecked(enabled)
+            .OnCheckedChanged(checked_ => ApplyOverlayHotkey(checked_ ? hotkey : _settings.OverlayHotkey, enabled: checked_));
         var change = new Button().Content(new Label().Text(_capturingHotkey ? "按组合键…（Esc 取消）" : "更改")).CanDrag(false)
+            .IsEnabled(enabled)
             .OnClick(() =>
             {
                 _capturingHotkey = true;
                 _hotkeyNotice = "请直接按键…（Esc 取消）";
                 RefreshHotkeyPanel();
             });
+        var rowItems = new List<Element>
+        {
+            new Label().Text("启用").FontSize(12).WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground)),
+            toggle,
+            change,
+        };
+        if (!string.Equals(hotkey, HotkeyService.DefaultOverlayHotkey, StringComparison.Ordinal))
+            rowItems.Add(new Button().Content(new Label().Text("恢复默认")).CanDrag(false)
+                .OnClick(() => ApplyOverlayHotkey(HotkeyService.DefaultOverlayHotkey, enabled: true)));
         _hotkeyPanel.Add(new StackPanel().Spacing(2).Children(
             new Label().Text(display).FontSize(14).WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground)),
-            new StackPanel().Orientation(Orientation.Horizontal).Spacing(8).Children(toggle, change)));
+            new StackPanel().Orientation(Orientation.Horizontal).Spacing(8).Children(rowItems.ToArray())));
         if (!string.IsNullOrEmpty(_hotkeyNotice))
             _hotkeyPanel.Add(new Label().Text(_hotkeyNotice).FontSize(11).WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground)));
         _hotkeyPanel.Add(new Label().Text("修改/禁用实时经 IPC 生效；宿主未运行时仅保存，重启宿主后生效").FontSize(11).WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground)));
@@ -559,7 +589,50 @@ internal sealed class PluginHostApp
         rowsPanel.Spacing = 12;
         rowsPanel.Refresh();
         _pluginPanel.Add(rowsPanel);
-        if (!string.IsNullOrEmpty(_pluginNotice) && rowsPanel.RowCount > 0)
+
+        // 独立插件（T3）子节（ADR-000303）：行权威在宿主（引擎实态 + plugins.json），每次重建经一次性 IPC 现拉
+        _pluginPanel.Add(new Label().Text("独立插件（T3，宿主托管）").FontSize(14).Bold().WithTheme((_, l) => l.Foreground(theme.EditorArea.Foreground)));
+        var t3RowCount = 0;
+        var fetched = HostPluginAdminIpc.TryFetchRows(out var transportError);
+        if (fetched is { } rows)
+        {
+            _hostProxyAdmin ??= new HostProxyPluginAdminService();
+            _hostProxyAdmin.SetRows(rows);
+            var t3Panel = new PluginAdminPanel(_hostProxyAdmin, _theme,
+                "无独立进程插件（entry.type=exe）", emptyStateFontSize: 12,
+                footerText: "动作由宿主即时执行：启用即拉起进程、禁用即停止；已崩溃不自动重拉，点行内「重启」恢复",
+                onApplied: OnHostProxyApplied);
+            t3Panel.Spacing = 12;
+            t3Panel.Refresh();
+            _pluginPanel.Add(t3Panel);
+            t3RowCount = t3Panel.RowCount;
+        }
+        else
+        {
+            _pluginPanel.Add(new Label().Text($"宿主不可达，独立插件暂不可管理（{transportError}）")
+                .FontSize(11).WithTheme((_, l) => l.Foreground(ShellIcons.HotkeyWarning)));
+        }
+
+        if (!string.IsNullOrEmpty(_pluginNotice) && rowsPanel.RowCount + t3RowCount > 0)
             _pluginPanel.Add(new Label().Text(_pluginNotice).FontSize(11).WithTheme((_, l) => l.Foreground(ShellIcons.HotkeyWarning)));
+    }
+
+    /// <summary>T3 行内动作完成后的通知条文案：宿主即时执行语义（ADR-000303），三态诚实呈现。</summary>
+    private void OnHostProxyApplied(string id, PluginRowAction action, PluginAdminResult result)
+    {
+        _ = id;
+        _pluginNotice = result.Outcome switch
+        {
+            PluginAdminOutcome.Ok => action switch
+            {
+                PluginRowAction.Enable => "已启用（宿主已拉起进程）",
+                PluginRowAction.Disable => "已禁用（宿主已停止进程）",
+                PluginRowAction.Restart => "已重启",
+                _ => "已生效",
+            },
+            PluginAdminOutcome.Rejected => $"宿主未生效：{result.Error}",
+            _ => $"宿主不可达，操作未生效（{result.Error}）",
+        };
+        RefreshPluginPanel();
     }
 }
