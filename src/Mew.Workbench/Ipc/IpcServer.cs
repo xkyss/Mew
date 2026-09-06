@@ -16,14 +16,20 @@ public sealed class IpcServer
     private readonly SettingsService? _settings;
     private readonly Func<string?, bool, OverlayHotkeySetAckMessage>? _overlayHotkeySetter;
     private readonly Func<string, bool, PluginEnableSetAckMessage>? _pluginEnableSetter;
+    private readonly Func<PluginRowsAckMessage>? _pluginRowsFetcher;
+    private readonly Func<string, string, PluginAdminActionAckMessage>? _pluginActionHandler;
 
     public IpcServer(HotkeyService? hotkeys = null, SettingsService? settings = null, Func<string?, bool, OverlayHotkeySetAckMessage>? overlayHotkeySetter = null,
-        Func<string, bool, PluginEnableSetAckMessage>? pluginEnableSetter = null)
+        Func<string, bool, PluginEnableSetAckMessage>? pluginEnableSetter = null,
+        Func<PluginRowsAckMessage>? pluginRowsFetcher = null,
+        Func<string, string, PluginAdminActionAckMessage>? pluginActionHandler = null)
     {
         _hotkeys = hotkeys;
         _settings = settings;
         _overlayHotkeySetter = overlayHotkeySetter;
         _pluginEnableSetter = pluginEnableSetter;
+        _pluginRowsFetcher = pluginRowsFetcher;
+        _pluginActionHandler = pluginActionHandler;
     }
 
     public IReadOnlyList<IpcClientHandle> Clients
@@ -114,6 +120,8 @@ public sealed class IpcServer
 
     private static bool IsOverlayHotkeySet(string line) => IsOneShotMessage(line, "overlayHotkeySet");
     private static bool IsPluginEnableSet(string line) => IsOneShotMessage(line, "pluginEnableSet");
+    private static bool IsPluginRowsRequest(string line) => IsOneShotMessage(line, "pluginRowsRequest");
+    private static bool IsPluginAdminAction(string line) => IsOneShotMessage(line, "pluginAdminAction");
 
     /// <summary>呼出热键设置入口（扩展主机经 IPC 调用）：无宿主处理器时明确拒绝，不断连。</summary>
     public OverlayHotkeySetAckMessage TrySetOverlayHotkey(string? hotkey, bool enabled) =>
@@ -124,6 +132,16 @@ public sealed class IpcServer
     public PluginEnableSetAckMessage TrySetPluginEnabled(string id, bool enabled) =>
         _pluginEnableSetter?.Invoke(id, enabled)
         ?? new PluginEnableSetAckMessage(false, "宿主不支持启用/禁用操作", id, enabled);
+
+    /// <summary>独立插件（T3）行拉取入口（ADR-000303）：无宿主处理器时返回带 Error 的空行集合。</summary>
+    public PluginRowsAckMessage TryFetchPluginRows() =>
+        _pluginRowsFetcher?.Invoke()
+        ?? new PluginRowsAckMessage([], "宿主不支持独立插件行拉取");
+
+    /// <summary>独立插件行内动作入口（ADR-000303）：无宿主处理器时明确拒绝。</summary>
+    public PluginAdminActionAckMessage TryPluginAction(string id, string action) =>
+        _pluginActionHandler?.Invoke(id, action)
+        ?? new PluginAdminActionAckMessage(false, "宿主不支持独立插件动作", id, action);
 
     public event Action<string>? ClientDisconnected;
 
@@ -216,6 +234,21 @@ public sealed class IpcServer
                         ? new PluginEnableSetAckMessage(false, "消息解析失败", "", false)
                         : TrySetPluginEnabled(setMsg.Id, setMsg.Enabled);
                     await writer.WriteLineAsync(JsonSerializer.Serialize(setAck, IpcJsonContext.Default.PluginEnableSetAckMessage));
+                    return;
+                }
+                if (IsPluginRowsRequest(line))
+                {
+                    var rowsAck = TryFetchPluginRows();
+                    await writer.WriteLineAsync(JsonSerializer.Serialize(rowsAck, IpcJsonContext.Default.PluginRowsAckMessage));
+                    return;
+                }
+                if (IsPluginAdminAction(line))
+                {
+                    var actMsg = JsonSerializer.Deserialize(line, IpcJsonContext.Default.PluginAdminActionMessage);
+                    var actAck = actMsg is null
+                        ? new PluginAdminActionAckMessage(false, "消息解析失败", "", "")
+                        : TryPluginAction(actMsg.Id, actMsg.Action);
+                    await writer.WriteLineAsync(JsonSerializer.Serialize(actAck, IpcJsonContext.Default.PluginAdminActionAckMessage));
                     return;
                 }
                 var reg = JsonSerializer.Deserialize(line, IpcJsonContext.Default.RegisterMessage);

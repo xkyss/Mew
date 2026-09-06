@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Mew.Workbench.Plugins;
 
 namespace Mew.Workbench.Ipc;
 
@@ -91,6 +92,54 @@ public sealed record PluginEnableSetAckMessage(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("enabled")] bool Enabled
 ) : IpcMessage("pluginEnableSetAck");
+
+/// <summary>独立插件（T3）行拉取请求（扩展主机 → 宿主，ADR-000303）：行来源权威在宿主（引擎实态 + plugins.json）。</summary>
+public sealed record PluginRowsRequestMessage() : IpcMessage("pluginRowsRequest");
+
+/// <summary>行拉取应答：Error 非 null 表示宿主侧无法提供（无处理器等），Rows 仍为空集合。</summary>
+public sealed record PluginRowsAckMessage(
+    [property: JsonPropertyName("rows")] List<PluginAdminRowDto> Rows,
+    [property: JsonPropertyName("error")] string? Error
+) : IpcMessage("pluginRowsAck");
+
+/// <summary>独立插件行内动作请求（扩展主机 → 宿主）：enable/disable/restart 由宿主 adapter 统一路由。</summary>
+public sealed record PluginAdminActionMessage(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("action")] string Action
+) : IpcMessage("pluginAdminAction");
+
+public sealed record PluginAdminActionAckMessage(
+    [property: JsonPropertyName("ok")] bool Ok,
+    [property: JsonPropertyName("error")] string? Error,
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("action")] string Action
+) : IpcMessage("pluginAdminActionAck");
+
+/// <summary>
+/// 插件管理行经 IPC 的可序列化形态：描述符复用宿主快照条目（清单 + 校验状态），
+/// 行状态按 ADR-000203 契约以枚举名传输；双向映射只在此处，两侧 adapter 不感知报文形状。
+/// </summary>
+public sealed record PluginAdminRowDto(
+    [property: JsonPropertyName("entry")] PluginSnapshotEntry Entry,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("action")] string Action,
+    [property: JsonPropertyName("hint")] string? Hint
+)
+{
+    public PluginAdminRow ToRow() => new(Entry.ToDescriptor(), new PluginRowState(
+        Enum.TryParse<PluginRowStatus>(Status, out var status) ? status : PluginRowStatus.Disabled,
+        Enum.TryParse<PluginRowAction>(Action, out var action) ? action : PluginRowAction.None,
+        Hint));
+
+    public static PluginAdminRowDto FromRow(PluginAdminRow row) => new(
+        PluginSnapshotEntry.FromDescriptor(row.Descriptor),
+        row.State.Status.ToString(),
+        row.State.Action.ToString(),
+        row.State.Hint);
+
+    public static bool TryParseAction(string action, out PluginRowAction parsed) =>
+        Enum.TryParse(action, ignoreCase: true, out parsed) && parsed != PluginRowAction.None;
+}
 
 public sealed record PluginCapabilitiesDto(
     [property: JsonPropertyName("search")] SearchCapabilityDto? Search,
