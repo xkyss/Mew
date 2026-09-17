@@ -26,7 +26,7 @@ public sealed class TrayIcon : IDisposable
     private readonly IntPtr _icon;
     private NotifyIconData _nid;
 
-    public TrayIcon(IntPtr windowHandle, Action quit, Action? openWorkspace = null, Action? restartWorkspace = null, Action? leftClick = null)
+    public TrayIcon(IntPtr windowHandle, Action quit, Action? openWorkspace = null, Action? restartWorkspace = null, Action? leftClick = null, string? tip = null)
     {
         _windowHandle = windowHandle;
         _quit = quit;
@@ -45,7 +45,7 @@ public sealed class TrayIcon : IDisposable
             uFlags = NifMessage | NifIcon | NifTip,
             uCallbackMessage = CallbackMessage,
             hIcon = _icon,
-            szTip = "Mew Launcher",
+            szTip = tip ?? "Mew Launcher",
         };
 
         _menu = CreatePopupMenu();
@@ -55,6 +55,23 @@ public sealed class TrayIcon : IDisposable
     }
 
     public void Add() => Shell_NotifyIconW(NimAdd, ref _nid);
+
+    /// <summary>托盘气球告警（宿主窗口永不亮出后的提示出口）：NIM_MODIFY + NIF_INFO 即时弹出，静默失败不抛。</summary>
+    public void ShowBalloon(string title, string text)
+    {
+        var (balloonTitle, balloonText) = BuildBalloonText(title, text);
+        var nid = _nid;
+        nid.uFlags = NifInfo;
+        nid.szInfo = balloonText;
+        nid.szInfoTitle = balloonTitle;
+        nid.dwInfoFlags = NiifWarning;
+        Shell_NotifyIconW(NimModify, ref nid);
+    }
+
+    /// <summary>气球文本整形（纯逻辑，可单测）：按 NOTIFYICONDATA 容量截断超长标题/正文。</summary>
+    public static (string Title, string Text) BuildBalloonText(string title, string text) => (
+        title.Length <= 63 ? title : title[..63],
+        text.Length <= 255 ? text : text[..255]);
 
     public bool HandleCallback(uint wParam, uint lParam)
     {
@@ -123,8 +140,11 @@ public sealed class TrayIcon : IDisposable
     private const uint NifMessage = 0x1;
     private const uint NifIcon = 0x2;
     private const uint NifTip = 0x4;
+    private const uint NifInfo = 0x10;
     private const uint NimAdd = 0x0;
+    private const uint NimModify = 0x1;
     private const uint NimDelete = 0x2;
+    private const uint NiifWarning = 0x2;
     private const uint TpmReturnCmd = 0x0100;
     private const uint TpmRightAlign = 0x0008;
     private const uint TpmBottomAlign = 0x0020;

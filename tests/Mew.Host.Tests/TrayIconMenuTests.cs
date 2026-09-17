@@ -77,4 +77,20 @@ public class TrayIconMenuTests
     {
         Assert.False(TrayIcon.DispatchLeftClick(null));
     }
+
+    [Fact]
+    public void Balloon_常规文本_原样返回()
+    {
+        var (title, text) = TrayIcon.BuildBalloonText("Mew Launcher", "主界面已唤出");
+        Assert.Equal("Mew Launcher", title);
+        Assert.Equal("主界面已唤出", text);
+    }
+
+    [Fact]
+    public void Balloon_超长文本_按气球容量截断()
+    {
+        var (title, text) = TrayIcon.BuildBalloonText(new string('T', 100), new string('X', 300));
+        Assert.Equal(63, title.Length);
+        Assert.Equal(255, text.Length);
+    }
 }
