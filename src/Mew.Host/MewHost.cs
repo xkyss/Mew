@@ -1,35 +1,30 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Aprillz.MewUI;
-using Aprillz.MewUI.Controls;
 using Aprillz.MewUI.Rendering;
 using Mew.Workbench;
 using Mew.Workbench.Ipc;
 using Mew.Workbench.Plugins;
 using WorkbenchType = Mew.Workbench.Workbench;
-using Icon = System.Drawing.Icon;
 
 namespace Mew.Host;
 
 /// <summary>
 /// 宿主(Mew.Host.exe, AOT 常驻)：仅承载 Overlay/托盘/全局热键/插件发现与 IPC 路由，不承载 Workbench 五区。
-/// 五区由 Mew.PluginHost(JIT) 承载，宿主按需拉起并探活。主窗口仅作托盘/热键/告警的隐藏基础设施，
-/// 插件管理统一在扩展主机设置→插件页（T3 行经 IPC 拉取，ADR-000303）。
+/// 五区由 Mew.PluginHost(JIT) 承载，宿主按需拉起并探活。宿主无可见窗口：message-only 消息窗口只提供
+/// 托盘回调与热键所需的 HWND；告警走托盘气球 + 日志（T3 启用态仍由宿主 adapter 经 IPC/快照托管，ADR-000303）。
 /// </summary>
 internal sealed class MewHost
 {
     private const string AppVersion = "v0.3.3";
     private const string OverlayHotkeyLabel = "浮层呼出键";
 
-    private Window _window = null!;
+    private HostMessageWindow? _msgWindow;
     private SettingsService _settings = null!;
     private HotkeyService _hotkeys = null!;
     private OverlayWindow _overlayWindow = null!;
     private PluginEnableStore _pluginEnables = null!;
     private string _overlayHotkey = null!;
-    private Icon? _windowIcon;
-    private IntPtr _windowLargeIcon;
-    private IntPtr _windowSmallIcon;
     private Process? _pluginHostProcess;
     private TrayIcon? _tray;
     private IpcServer _ipcServer = null!;
@@ -38,11 +33,6 @@ internal sealed class MewHost
 
     internal void Run()
     {
-        var window = new NativeChromeWindow()
-            .Title($"Mew Launcher — {AppVersion}")
-            .Resizable(400, 300);
-
-        _window = window;
         var theme = new WorkbenchType().ThemeContext;
         var settings = new SettingsService();
         _settings = settings;
@@ -59,7 +49,8 @@ internal sealed class MewHost
             // Toast 需在 UI 线程，暂仅日志，避免跨线程集合修改崩溃
         };
         ipcServer.Start();
-        var overlay = new OverlayWindow(window, theme);
+        // 宿主无可见窗口：浮层 owner 传 null（无 owner 顶层浮层，定位/置顶逻辑不变）
+        var overlay = new OverlayWindow(null, theme);
         _overlayWindow = overlay;
 
         settings.Load();
@@ -94,66 +85,43 @@ internal sealed class MewHost
             && string.Equals(d.Manifest.Entry.Type, "exe", StringComparison.OrdinalIgnoreCase)).ToList();
         Log($"宿主托管 T3 插件：{t3Plugins.Count} 项（启用 {enabledExe.Count} 项已拉起）");
 
-        // 首启直接隐藏到托盘：以 0 透明度进入 Run，窗口创建并 show 但全程不可见（消除"一闪而过"）。
-        // 关键：Loaded 里所有初始化（图标/热键/托盘）都必须在仍为 0 透明度时做完，先 Hide 再恢复不透明——
-        // 若先恢复不透明再做初始化，窗口会以可见态跨过若干合成帧才被 Hide，仍是可见闪烁。句柄基线仍取 show 前的句柄。
-        window.Opacity = 0;
-        var preShowHandle = window.Handle;
+        // 宿主无可见窗口：message-only 窗口只提供托盘/热键所需的 HWND，同步创建、无 Loaded 时序。
+        _msgWindow = new HostMessageWindow(OnMessageWindowMessage);
+        var hwnd = _msgWindow.Handle;
+        Log($"宿主消息窗口句柄={hwnd:X}");
+        var overlayHotkeyRegistered = settings.OverlayHotkeyEnabled
+            && _hotkeys.Register(hwnd, _overlayHotkey, ToggleOverlayFromHotkey, OverlayHotkeyLabel);
+        Log(settings.OverlayHotkeyEnabled
+            ? (overlayHotkeyRegistered ? $"呼出热键已注册：{_overlayHotkey}" : $"呼出热键注册失败：{_overlayHotkey}（可能被占用或句柄无效）")
+            : "呼出热键已禁用（设置→热键可重新启用）");
+        _tray = new TrayIcon(hwnd, Quit, EnsurePluginHostRunning, RestartPluginHost, () => _overlayWindow.ToggleOverlay(),
+            tip: $"Mew Launcher — {AppVersion}");
+        _tray.Add();
+        // 宿主启动即拉起主界面（ADR-000202 的常驻干净让位给开箱即用；崩溃仍不自愈，需手动重启）
+        EnsurePluginHostRunning();
+        if (!overlayHotkeyRegistered)
+            Warn($"⚠ 呼出热键 {_overlayHotkey} 注册失败(可能已被其他程序占用)");
 
-        // 窗口仅是托盘/热键/告警的隐藏基础设施（ADR-000303）：插件管理在扩展主机设置→插件页；
-        // 内容只为 Warn 告警路径亮出时给出说明
-        window.Content = new StackPanel().Padding(24).Spacing(8).Children(
-            new Label().Text("Mew 宿主常驻中").FontSize(14).Bold(),
-            new Label().Text("此窗口仅在告警时亮出。插件管理在主界面 设置→插件；托盘可打开/重启主界面。").FontSize(11));
-        window.Closing += e => { e.Cancel = true; window.HideToTray(); };
-
-        window.Loaded += () =>
+        // 无主窗口进泵：只为浮层/托盘/热键服务；退出一律经托盘菜单 Quit → Shutdown。
+        Application.Run(() =>
         {
-            // 0 透明度期间完成全部初始化：窗口不可见，DWM 不会合成任何一帧
-            ApplyWindowIcon(window);
-            Log($"热键句柄比对：show前={preShowHandle:X}，当前={window.Handle:X}");
-            var overlayHotkeyRegistered = settings.OverlayHotkeyEnabled
-                && _hotkeys.Register(window.Handle, _overlayHotkey, ToggleOverlayFromHotkey, OverlayHotkeyLabel);
-            Log(settings.OverlayHotkeyEnabled
-                ? (overlayHotkeyRegistered ? $"呼出热键已注册：{_overlayHotkey}" : $"呼出热键注册失败：{_overlayHotkey}（可能被占用或句柄无效）")
-                : "呼出热键已禁用（设置→热键可重新启用）");
-            _tray = new TrayIcon(window.Handle, Quit, EnsurePluginHostRunning, RestartPluginHost, () => _overlayWindow.ToggleOverlay());
-            _tray.Add();
-            // 宿主启动即拉起主界面（ADR-000202 的常驻干净让位给开箱即用；崩溃仍不自愈，需手动重启）
-            EnsurePluginHostRunning();
-            if (!overlayHotkeyRegistered)
-            {
-                // 告警路径：先恢复不透明再亮出（提示在隐藏窗口上不可见）
-                window.Opacity = 1;
-                window.ShowToast($"⚠ 呼出热键 {_overlayHotkey} 注册失败(可能已被其他程序占用)");
-                window.Show(null!);
-                window.Activate();
-            }
-            else
-            {
-                // 正常路径：先 Hide（此时仍 0 透明度，全程无可见帧），再恢复不透明供后续亮出（托盘/告警）
-                window.Hide();
-                window.Opacity = 1;
-            }
-        };
-
-        window.NativeMessage += args =>
-        {
-            if (args is not Win32NativeMessageEventArgs e) return;
-            if (e.Msg == HotkeyService.WmHotkey) { Log($"收到热键消息 id={e.WParam}"); _hotkeys.Dispatch((int)e.WParam); args.Handled = true; }
-            else if (e.Msg == TrayIcon.WmCallback && _tray is not null) { _tray.HandleCallback((uint)e.WParam, (uint)e.LParam); args.Handled = true; }
-        };
-
-        Application.Run(window);
-        _windowIcon?.Dispose();
-        DestroyWindowIcons();
+            if (Application.Current is { } app) app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        });
         // 独立生死：宿主退出不再终止扩展主机进程
 
         void Quit()
         {
             _tray?.Dispose();
+            _msgWindow?.Dispose();
             Application.Shutdown();
         }
+    }
+
+    /// <summary>消息窗口路由（原窗口 NativeMessage）：热键分发 + 托盘回调，跑在消息泵线程。</summary>
+    private void OnMessageWindowMessage(uint msg, IntPtr wParam, IntPtr lParam)
+    {
+        if (msg == HotkeyService.WmHotkey) { Log($"收到热键消息 id={wParam}"); _hotkeys.Dispatch((int)wParam); }
+        else if (msg == TrayIcon.WmCallback && _tray is not null) { _tray.HandleCallback((uint)wParam, (uint)lParam); }
     }
 
     /// <summary>独立插件（T3）行拉取（扩展主机经 IPC 请求，ADR-000303）：宿主 adapter 快照为唯一权威行来源。</summary>
@@ -258,11 +226,14 @@ internal sealed class MewHost
         StartPluginHostProcess();
     }
 
-    /// <summary>告警并亮出主窗口（常驻隐藏态下保证提示可见）。仅 UI 线程调用。</summary>
+    /// <summary>告警：宿主无可见窗口，提示走托盘气球（托盘未建好时仅日志）。调用线程不限，异常吞掉。</summary>
     private void Warn(string message)
     {
         Log(message);
-        try { _window.ShowToast(message); _window.Show(null!); _window.Activate(); }
+        try
+        {
+            _tray?.ShowBalloon("Mew Launcher", message);
+        }
         catch { }
     }
 
@@ -327,8 +298,9 @@ internal sealed class MewHost
 
     private OverlayHotkeySetAckMessage OnOverlayHotkeySet(string? hotkey, bool enabled)
     {
+        var hwnd = _msgWindow?.Handle ?? IntPtr.Zero;
         var (ok, error, effectiveHotkey, effectiveEnabled) = OverlayHotkeyAdmin.Apply(
-            _hotkeys, _overlayHotkey, _window.Handle, ToggleOverlayFromHotkey, OverlayHotkeyLabel, hotkey, enabled);
+            _hotkeys, _overlayHotkey, hwnd, ToggleOverlayFromHotkey, OverlayHotkeyLabel, hotkey, enabled);
         if (!ok)
             return new OverlayHotkeySetAckMessage(false, error, _overlayHotkey, true);
         _overlayHotkey = effectiveHotkey;
@@ -416,25 +388,6 @@ internal sealed class MewHost
         }
     }
 
-    private void ApplyWindowIcon(Window window)
-    {
-        var path = Environment.ProcessPath!;
-        if (ExtractIconEx(path, 0, out var large, out var small, 1) > 0) { _windowLargeIcon = large; _windowSmallIcon = small; SendMessage(window.Handle, WmSetIcon, IconSmall, small); SendMessage(window.Handle, WmSetIcon, IconBig, large); return; }
-        _windowIcon = Icon.ExtractAssociatedIcon(path);
-        if (_windowIcon is null) return;
-        SendMessage(window.Handle, WmSetIcon, IconSmall, _windowIcon.Handle);
-        SendMessage(window.Handle, WmSetIcon, IconBig, _windowIcon.Handle);
-    }
-
-    private void DestroyWindowIcons()
-    {
-        if (_windowLargeIcon != IntPtr.Zero) { DestroyIcon(_windowLargeIcon); _windowLargeIcon = IntPtr.Zero; }
-        if (_windowSmallIcon != IntPtr.Zero) { DestroyIcon(_windowSmallIcon); _windowSmallIcon = IntPtr.Zero; }
-    }
-
-    private const uint WmSetIcon = 0x0080;
-    private static readonly IntPtr IconSmall = IntPtr.Zero;
-    private static readonly IntPtr IconBig = new(1);
     [DllImport("user32.dll")] private static extern bool EnumWindows(NativeEnumWindowsProc callback, int lParam);
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(nint hwnd, out int processId);
     [DllImport("user32.dll")] private static extern nint GetWindow(nint hwnd, uint cmd);
@@ -447,7 +400,4 @@ internal sealed class MewHost
     private const int SwShow = 5;
     private const uint AsfwAny = 0xFFFFFFFF;
     private delegate bool NativeEnumWindowsProc(nint hwnd, int lParam);
-    [DllImport("shell32.dll", CharSet = CharSet.Unicode)] private static extern uint ExtractIconEx(string f, int idx, out IntPtr large, out IntPtr small, uint n);
-    [DllImport("user32.dll")] private static extern bool DestroyIcon(IntPtr h);
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr SendMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
 }

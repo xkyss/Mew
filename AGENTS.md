@@ -30,7 +30,7 @@ See `docs/agents/domain.md`.
 private const string AppVersion = "v0.2.0";
 ```
 
-该常量用于主窗口标题(`Mew Launcher — {AppVersion}`)与关于对话框(`Mew Launcher {AppVersion}`)。v0.2.0 起宿主为 `Mew.Host`(exe),模块 `Mew.Launcher` 不再持有版本号。
+该常量用于托盘悬停提示(`Mew Launcher — {AppVersion}`)与关于对话框(`Mew Launcher {AppVersion}`)。v0.2.0 起宿主为 `Mew.Host`(exe),模块 `Mew.Launcher` 不再持有版本号。
 
 提升版本号时:
 

@@ -16,7 +16,7 @@ public sealed class OverlayWindow : IOverlayService
     private static readonly Color White = Color.FromArgb(255, 255, 255, 255);
 
     private readonly Window _window;
-    private readonly Window _owner;
+    private readonly Window? _owner;
     private readonly WorkbenchThemeContext _theme;
     private readonly List<ISearchSource> _sources = [];
     private readonly TextBox _searchBox = new() { Placeholder = "输入以搜索", CanDrag = false };
@@ -25,7 +25,7 @@ public sealed class OverlayWindow : IOverlayService
     private readonly SelectionModel _selection = new();
     private bool _visible;
 
-    public OverlayWindow(Window owner, WorkbenchThemeContext theme)
+    public OverlayWindow(Window? owner, WorkbenchThemeContext theme)
     {
         _owner = owner;
         _theme = theme;
@@ -53,7 +53,8 @@ public sealed class OverlayWindow : IOverlayService
     public void ShowOverlay()
     {
         _visible = true;
-        _window.Show(_owner);
+        // 宿主无窗口时 owner 为 null（等价无 owner 浮层）；扩展主机传主窗口
+        _window.Show(_owner!);
         PositionOverlay();
         _window.Activate();
         _searchBox.Text = "";
