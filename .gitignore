@@ -59,6 +59,7 @@ nunit-*.xml
 # Mew: centralized build output (Directory.Build.props) and publish artifacts
 .build/
 .build-linux/
+.zcode/
 publish/
 .vs/
 .idea/
