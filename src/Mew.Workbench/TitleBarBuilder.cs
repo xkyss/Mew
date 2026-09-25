@@ -51,11 +51,12 @@ public static class TitleBarBuilder
             .Content(new Label().Text("")
                 .TextAlignment(TextAlignment.Center)
                 .VerticalTextAlignment(TextAlignment.Center))
-            .ToolTip("切换主题")
             .OnClick(cycleTheme)
             .CanDrag(false)
             .Size(36, 28)
             .StyleName("chrome");
+        // ToolTip 摘除(原 .ToolTip("切换主题")):上游 MewUI #253——tooltip 显示时首次点击
+        // 只关闭 tooltip 不触发 Click;上游修复后恢复。运行时覆写见宿主 UpdateThemeButton。
         window.TitleBarRight.Add(themeButton);
         return themeButton;
     }

@@ -94,6 +94,9 @@ internal sealed class PluginHostApp
             : $"插件来源：本地扫描（快照缺失/损坏，回退；主目录={primaryPluginDir}）");
 
         workbench.Theme(tc => tc.SetMode(LoadThemeMode()).SetAccent(Accent.Blue));
+        // TEMP-DIAG(活动栏双击排查,用后删除):记录每次呈现变更,定位第一次点击是否调到 SelectActivity
+        workbench.PresentationChanged += () => PluginHostLog.Write(
+            $"[DIAG] PresentationChanged active={workbench.ActiveActivityId} sidebar={workbench.IsSideBarVisible} tick={Environment.TickCount64}");
 
         // 宿主设置节：插件列表（发现结果）先于模块节注册，保证顺序 外观/插件/热键/模块节
         settingsSections.Add("plugins", "插件", BuildPluginPanel);
@@ -244,7 +247,8 @@ internal sealed class PluginHostApp
         b.Content(new Label().Text(entry.Icon).FontSize(14)
             .TextAlignment(TextAlignment.Center)
             .VerticalTextAlignment(TextAlignment.Center));
-        b.ToolTip(entry.ToolTip);
+        // ToolTip 摘除(原 b.ToolTip(entry.ToolTip)):上游 MewUI #253——tooltip 显示时首次点击
+        // 只关闭 tooltip 不触发 Click;上游修复后随 TitleBarBuilder 一并恢复。
     }
 
     private static void ShowAbout(NativeChromeWindow window)

@@ -392,8 +392,9 @@ internal sealed class WorkbenchView
                 : new GlyphElement()
                     .Kind(item.Glyph)
                     .GlyphSize(18)
-                    .WithTheme((_, glyph) => glyph.Foreground(theme.ActivityBar.Foreground)))
-            .ToolTip(item.Title);
+                    .WithTheme((_, glyph) => glyph.Foreground(theme.ActivityBar.Foreground)));
+        // ToolTip 摘除(原 .ToolTip(item.Title)):上游 MewUI #253——tooltip 显示时首次点击
+        // 只关闭 tooltip 不触发 Click,高频点击路径宁缺提示;上游修复后恢复。
 
         button.OnClick(() => _workbench.SelectActivity(item.Id));
         _activityButtons.Add(item.Id, button);
