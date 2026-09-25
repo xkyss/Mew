@@ -241,7 +241,9 @@ internal sealed class PluginHostApp
     {
         if (_titleThemeButton is not { } b) return;
         var entry = Array.Find(_themeModes, c => c.Mode == _theme.Mode);
-        b.Content(new Label().Text(entry.Icon).FontSize(14));
+        b.Content(new Label().Text(entry.Icon).FontSize(14)
+            .TextAlignment(TextAlignment.Center)
+            .VerticalTextAlignment(TextAlignment.Center));
         b.ToolTip(entry.ToolTip);
     }
 

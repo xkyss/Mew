@@ -44,13 +44,18 @@ public static class TitleBarBuilder
 
         window.TitleBarLeft.Add(menuBar);
 
-        // 右区:切换主题图标按钮(图标与提示由宿主 UpdateThemeButton 随模式刷新)
+        // 右区:切换主题图标按钮(图标与提示由宿主 UpdateThemeButton 随模式刷新)。
+        // 复用窗口 StyleSheet 的 "chrome" 样式,与最小化/最大化/关闭按钮观感一致:
+        // 透明背景、悬停/按下才显色、无边框、无焦点框。
         var themeButton = new Button()
-            .Content(new Label().Text(""))
+            .Content(new Label().Text("")
+                .TextAlignment(TextAlignment.Center)
+                .VerticalTextAlignment(TextAlignment.Center))
             .ToolTip("切换主题")
             .OnClick(cycleTheme)
             .CanDrag(false)
-            .Size(36, 28);
+            .Size(36, 28)
+            .StyleName("chrome");
         window.TitleBarRight.Add(themeButton);
         return themeButton;
     }
