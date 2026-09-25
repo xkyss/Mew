@@ -4,8 +4,8 @@ using Xunit;
 namespace Mew.Host.Tests;
 
 /// <summary>
-/// 托盘分发测试（v0.2.2 票据 01/05；v0.3.3 起「插件管理」项随宿主占位窗退役一并移除，ADR-000303）：
-/// 菜单只有打开/重启主界面与退出，左键呼出浮层；仅测纯分发表，不建窗口、不调 Win32。
+/// 托盘分发测试：菜单只有打开/重启主界面与退出，单击打开主界面（只唤出、不隐藏），浮层仅经热键呼出；
+/// 仅测纯分发表，不建窗口、不调 Win32。
 /// </summary>
 public class TrayIconMenuTests
 {
@@ -65,17 +65,17 @@ public class TrayIconMenuTests
     }
 
     [Fact]
-    public void LeftClick_有自定义动作_执行并返回真()
+    public void SingleClick_有自定义动作_执行并返回真()
     {
         var calls = new List<string>();
-        Assert.True(TrayIcon.DispatchLeftClick(() => calls.Add("overlay")));
-        Assert.Equal(["overlay"], calls);
+        Assert.True(TrayIcon.DispatchSingleClick(() => calls.Add("open-main")));
+        Assert.Equal(["open-main"], calls);
     }
 
     [Fact]
-    public void LeftClick_无自定义动作_返回假()
+    public void SingleClick_无自定义动作_返回假()
     {
-        Assert.False(TrayIcon.DispatchLeftClick(null));
+        Assert.False(TrayIcon.DispatchSingleClick(null));
     }
 
     [Fact]

@@ -19,9 +19,8 @@ public class PluginDirSectionTests
     public void Build_路径展示_修改入口_反馈初始隐藏()
     {
         var panel = new StackPanel();
-        var picked = false;
 
-        var feedback = PluginHostApp.BuildPluginDirsSection(panel, _theme, @"C:\mew-plugins", () => picked = true);
+        var feedback = PluginHostApp.BuildPluginDirsSection(panel, _theme, @"C:\mew-plugins", () => { });
 
         var labels = FindAllByType(panel, typeof(Label)).OfType<Label>().ToList();
         Assert.Contains(labels, l => l.Text == @"C:\mew-plugins");

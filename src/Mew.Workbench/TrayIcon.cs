@@ -4,14 +4,15 @@ using System.Runtime.InteropServices;
 namespace Mew.Workbench;
 
 /// <summary>
-/// 托盘常驻图标:首启即隐藏，仅留托盘与全局热键;左键呼出浮层，右键菜单打开/重启主界面或退出。
-/// 回调消息(WM_APP)经主窗口 NativeMessage 路由，隐藏期间全局热键照常。
+/// 托盘常驻图标:单击打开主界面（只唤出，多次点击也不隐藏），右键菜单打开/重启主界面或退出；热键打开/隐藏浮层。
+/// 回调消息(WM_APP)经宿主消息窗口路由，主界面显隐由宿主经 Win32 句柄切换（关=隐藏，进程常驻）。
 /// </summary>
 public sealed class TrayIcon : IDisposable
 {
     private const uint CallbackMessage = 0x8001; // WM_APP + 1
     public const uint WmCallback = CallbackMessage;
     private const uint WmLButtonUp = 0x0202;
+    private const uint WmLButtonDblClk = 0x0203;
     private const uint WmRButtonUp = 0x0205;
     public const int MenuQuit = 1;
     public const int MenuOpenWorkspace = 2;
@@ -21,18 +22,18 @@ public sealed class TrayIcon : IDisposable
     private readonly Action _quit;
     private readonly Action? _openWorkspace;
     private readonly Action? _restartWorkspace;
-    private readonly Action? _leftClick;
+    private readonly Action? _singleClick;
     private readonly IntPtr _menu;
     private readonly IntPtr _icon;
     private NotifyIconData _nid;
 
-    public TrayIcon(IntPtr windowHandle, Action quit, Action? openWorkspace = null, Action? restartWorkspace = null, Action? leftClick = null, string? tip = null)
+    public TrayIcon(IntPtr windowHandle, Action quit, Action? openWorkspace = null, Action? restartWorkspace = null, Action? singleClick = null, string? tip = null)
     {
         _windowHandle = windowHandle;
         _quit = quit;
         _openWorkspace = openWorkspace;
         _restartWorkspace = restartWorkspace;
-        _leftClick = leftClick;
+        _singleClick = singleClick;
 
         using var sourceIcon = Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
         _icon = CopyIcon(sourceIcon.Handle);
@@ -83,8 +84,10 @@ public sealed class TrayIcon : IDisposable
         switch (lParam)
         {
             case WmLButtonUp:
-                DispatchLeftClick(_leftClick);
+                DispatchSingleClick(_singleClick);
                 return true;
+            case WmLButtonDblClk:
+                return true; // 双击无动作：只唤出逻辑已由单击承担，避免切换显隐
             case WmRButtonUp:
                 ShowMenu();
                 return true;
@@ -100,11 +103,11 @@ public sealed class TrayIcon : IDisposable
         HandleMenuCommand(command);
     }
 
-    /// <summary>左键分发（纯逻辑，可单测）：有自定义动作则执行并返回真，否则返回假。</summary>
-    public static bool DispatchLeftClick(Action? leftClick)
+    /// <summary>单击分发（纯逻辑，可单测）：有自定义动作则执行并返回真，否则返回假。</summary>
+    public static bool DispatchSingleClick(Action? singleClick)
     {
-        if (leftClick == null) return false;
-        leftClick();
+        if (singleClick == null) return false;
+        singleClick();
         return true;
     }
 

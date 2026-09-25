@@ -94,8 +94,9 @@ internal sealed class MewHost
         Log(settings.OverlayHotkeyEnabled
             ? (overlayHotkeyRegistered ? $"呼出热键已注册：{_overlayHotkey}" : $"呼出热键注册失败：{_overlayHotkey}（可能被占用或句柄无效）")
             : "呼出热键已禁用（设置→热键可重新启用）");
-        _tray = new TrayIcon(hwnd, Quit, EnsurePluginHostRunning, RestartPluginHost, () => _overlayWindow.ToggleOverlay(),
+        _tray = new TrayIcon(hwnd, Quit, EnsurePluginHostRunning, RestartPluginHost, EnsurePluginHostRunning,
             tip: $"Mew Launcher — {AppVersion}");
+        // 程序打开时默认打开主界面（浮层仅经热键呼出，不自启）；托盘单击只唤出，多次点击也不隐藏
         _tray.Add();
         // 宿主启动即拉起主界面（ADR-000202 的常驻干净让位给开箱即用；崩溃仍不自愈，需手动重启）
         EnsurePluginHostRunning();
@@ -259,19 +260,7 @@ internal sealed class MewHost
     /// <summary>唤出指定进程的主窗口（最小化则恢复，隐藏则显示并前台）；找不到窗口返回 false（启动中时）。</summary>
     private static bool TryShowProcessWindow(int pid)
     {
-        nint found = 0;
-        EnumWindows((hwnd, _) =>
-        {
-            GetWindowThreadProcessId(hwnd, out var id);
-            if (id != pid || GetWindow(hwnd, GwOwner) != 0)
-            {
-                return true; // 非目标进程或被拥有的窗口（对话框等）跳过
-            }
-
-            found = hwnd;
-            return false;
-        }, 0);
-        if (found == 0)
+        if (!TryFindPluginHostWindow(pid, out var found))
         {
             return false;
         }
@@ -288,6 +277,25 @@ internal sealed class MewHost
         AllowSetForegroundWindow(AsfwAny);
         SetForegroundWindow(found);
         return true;
+    }
+
+    /// <summary>按 pid 查找主窗口（跳过被拥有的对话框等）；找不到返回 false（启动中时）。</summary>
+    private static bool TryFindPluginHostWindow(int pid, out nint hwnd)
+    {
+        nint found = 0;
+        EnumWindows((h, _) =>
+        {
+            GetWindowThreadProcessId(h, out var id);
+            if (id != pid || GetWindow(h, GwOwner) != 0)
+            {
+                return true; // 非目标进程或被拥有的窗口（对话框等）跳过
+            }
+
+            found = h;
+            return false;
+        }, 0);
+        hwnd = found;
+        return found != 0;
     }
 
     private void ToggleOverlayFromHotkey()
