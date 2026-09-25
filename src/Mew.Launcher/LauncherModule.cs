@@ -46,6 +46,11 @@ public sealed class LauncherModule : IMewToolModule
     private ScrollViewer? _listScrollViewer;
     private WrapPanel? _cardPanel;
     private readonly StackPanel _detailPanel = new();
+    private HotkeyCapture? _itemHotkeyCapture; // 每项热键捕获态(票据 01,与呼出热键共享状态机)
+    private Label? _hotkeyDisplay;
+    private Button? _hotkeyCaptureButton;
+    private Button? _hotkeyClearButton;
+    private Label? _hotkeyHint;
     private readonly List<string> _logLines = [];
     private readonly MultiLineTextBox _logBox = new MultiLineTextBox { IsReadOnly = true, CanDrag = false, BorderThickness = 0, Wrap = true }.FontSize(12);
     private string _navId = LauncherData.AllNavId; // 当前导航节点:「全部」/ 分类 id /「未分类」
@@ -85,6 +90,9 @@ public sealed class LauncherModule : IMewToolModule
 
         _items = _store.Load();
         _itemHotkeys = new ItemHotkeys(_items, LaunchItem, Feedback, context.Hotkeys);
+        // 每项热键捕获(票据 01):与呼出热键共享 HotkeyCapture;本项已设组合被屏蔽不算冲突(重复捕获=无操作)
+        _itemHotkeyCapture = new HotkeyCapture(hotkey =>
+            HotkeyParser.IsSameCombo(hotkey, _current?.Hotkey) ? null : context.Hotkeys.FindOwner(hotkey));
         _viewMode = string.IsNullOrWhiteSpace(LauncherItemsViewMode) ? "card" : LauncherItemsViewMode!;
 
         _workbench
@@ -128,9 +136,17 @@ public sealed class LauncherModule : IMewToolModule
     private const string EditIconData =
         "M3,17.25 L3,21 L6.75,21 L17.81,9.94 L14.06,6.19 L3,17.25 Z M20.71,7.04 C21.1,6.65 21.1,6.02 20.71,5.63 L18.37,3.29 C17.98,2.9 17.35,2.9 16.96,3.29 L15.13,5.12 L18.88,8.87 L20.71,7.04 Z";
 
-    /// <summary>窗口内快捷键:定位当前启动项详情所属的侧边栏分类;启动项列表激活时提供键盘导航。</summary>
+    /// <summary>窗口内快捷键:定位当前启动项详情所属的侧边栏分类;启动项列表激活时提供键盘导航。
+    /// 每项热键捕获态优先(票据 01):按键经共享状态机归约,定位快捷键与列表导航让位。</summary>
     private void OnWindowKeyDown(KeyEventArgs e)
     {
+        if (_itemHotkeyCapture is { IsCapturing: true })
+        {
+            e.Handled = true;
+            ApplyItemHotkeyCaptureOutcome(_itemHotkeyCapture.Process(e));
+            return;
+        }
+
         if (e.ControlKey && e.AltKey && e.Key == Key.R)
         {
             if (_workbench.RevealDocument(DetailDocumentId))
@@ -1165,6 +1181,7 @@ public sealed class LauncherModule : IMewToolModule
 
     private void ShowEmptyDetail()
     {
+        _itemHotkeyCapture?.End(); // 详情清空时同样取消进行中的捕获
         _current = null;
         _detailPanel.Clear();
         _detailPanel.Add(new Label()
@@ -1191,11 +1208,9 @@ public sealed class LauncherModule : IMewToolModule
         var categoryOptions = LauncherData.FlattenCategoryOptions(_store.Categories.ToList());
         var categoryChecks = BuildCategoryChecks(categoryOptions, item.CategoryIds ?? []);
         var icon = TextField(item.Icon ?? "", "可选图标路径");
-        var hotkey = TextField(item.Hotkey ?? "", "可选每项热键,如 Ctrl+Shift+1");
-        var hotkeyHint = new Label()
-            .Text("")
-            .FontSize(11)
-            .WithTheme((_, label) => label.Foreground(ShellIcons.HotkeyWarning));
+        _itemHotkeyCapture?.End(); // 切换选中项即取消进行中的捕获,避免误写入新项
+        var hotkeyRow = BuildItemHotkeyRow(item);
+        var hotkeyHint = NewHotkeyHint();
 
         _loading = false;
 
@@ -1205,13 +1220,6 @@ public sealed class LauncherModule : IMewToolModule
         args.TextChanged += text => UpdateCurrent(i => i with { Args = string.IsNullOrWhiteSpace(text) ? null : text });
         workingDirectory.TextChanged += text => UpdateCurrent(i => i with { WorkingDirectory = string.IsNullOrWhiteSpace(text) ? null : text });
         icon.TextChanged += text => UpdateCurrent(i => i with { Icon = string.IsNullOrWhiteSpace(text) ? null : text });
-        hotkey.TextChanged += text =>
-        {
-            UpdateCurrent(i => i with { Hotkey = string.IsNullOrWhiteSpace(text) ? null : text });
-            hotkeyHint.Text = text.Length > 0 && !HotkeyParser.TryParse(text, out _, out _)
-                ? "热键格式无效,如 Ctrl+Shift+1(需至少一个修饰键)"
-                : "";
-        };
 
         return new StackPanel()
             .Padding(24)
@@ -1240,9 +1248,111 @@ public sealed class LauncherModule : IMewToolModule
                 FieldRow("分类", categoryChecks),
                 SectionTitle("高级", _theme.EditorArea.Foreground),
                 FieldRow("图标", icon),
-                FieldRow("每项热键", hotkey),
+                FieldRow("每项热键", hotkeyRow),
                 hotkeyHint
             );
+    }
+
+    /// <summary>每项热键行(票据 01):当前值展示 + 捕获按钮(与设置→热键页一致)+ 清空入口;
+    /// 捕获态按键经 WindowKeyDown → ApplyItemHotkeyCaptureOutcome 归约,手输 TextField 与即时格式校验退役。</summary>
+    private UIElement BuildItemHotkeyRow(LauncherItem item)
+    {
+        var display = new Label().Text(item.Hotkey ?? "未设置").FontSize(12)
+            .WithTheme((_, label) => label.Foreground(_theme.EditorArea.Foreground));
+        _hotkeyDisplay = display;
+        _hotkeyCaptureButton = new Button().Content(new Label().Text("更改")).CanDrag(false)
+            .OnClick(BeginItemHotkeyCapture);
+        _hotkeyClearButton = new Button().Content(new Label().Text("清空")).CanDrag(false)
+            .OnClick(ClearItemHotkey);
+        _hotkeyClearButton.IsVisible = item.Hotkey is not null;
+        return new StackPanel().Orientation(Orientation.Horizontal).Spacing(8)
+            .Children(display, _hotkeyCaptureButton, _hotkeyClearButton);
+    }
+
+    /// <summary>每项热键提示标签(红字,空文案隐藏不占位)。</summary>
+    private Label NewHotkeyHint()
+    {
+        var hint = new Label().Text("").FontSize(11)
+            .WithTheme((_, label) => label.Foreground(ShellIcons.HotkeyWarning));
+        hint.IsVisible = false;
+        _hotkeyHint = hint;
+        return hint;
+    }
+
+    /// <summary>进入捕获态:按钮转提示文案,红字提示「请直接按键」;后续按键经 OnWindowKeyDown 归约。</summary>
+    private void BeginItemHotkeyCapture()
+    {
+        if (_itemHotkeyCapture is not { } capture || _hotkeyCaptureButton is not { } button)
+        {
+            return;
+        }
+
+        capture.Begin();
+        button.Content(new Label().Text("按组合键…（Esc 取消）"));
+        ShowItemHotkeyHint("请直接按键…（Esc 取消）");
+    }
+
+    /// <summary>清空已设热键:取消进行中的捕获,置空落盘(经 UpdateCurrent 保存并重注册)。</summary>
+    private void ClearItemHotkey()
+    {
+        _itemHotkeyCapture?.End();
+        UpdateCurrent(i => i with { Hotkey = null });
+        RestoreItemHotkeyCaptureButton();
+        if (_hotkeyDisplay is { } display)
+        {
+            display.Text = "未设置";
+        }
+
+        ShowItemHotkeyHint("已清空");
+    }
+
+    /// <summary>捕获态按键落点:取消恢复按钮并清提示,提示原样点亮,捕获成功即时落盘(每项热键经中央热键服务重注册)。</summary>
+    private void ApplyItemHotkeyCaptureOutcome(HotkeyCaptureOutcome outcome)
+    {
+        switch (outcome.Disposition)
+        {
+            case HotkeyCaptureDisposition.Cancelled:
+                RestoreItemHotkeyCaptureButton();
+                ShowItemHotkeyHint("");
+                break;
+            case HotkeyCaptureDisposition.Notice:
+                ShowItemHotkeyHint(outcome.Notice ?? "");
+                break;
+            case HotkeyCaptureDisposition.Captured:
+                UpdateCurrent(i => i with { Hotkey = outcome.Hotkey });
+                RestoreItemHotkeyCaptureButton();
+                if (_hotkeyDisplay is { } display)
+                {
+                    display.Text = outcome.Hotkey ?? "未设置"; // Captured 恒非空,空回退仅为可空注解兜底
+                }
+
+                if (_hotkeyClearButton is { } clear)
+                {
+                    clear.IsVisible = true;
+                }
+
+                ShowItemHotkeyHint($"已生效：{outcome.Hotkey}");
+                break;
+        }
+    }
+
+    private void RestoreItemHotkeyCaptureButton()
+    {
+        if (_hotkeyCaptureButton is { } button)
+        {
+            button.Content(new Label().Text("更改"));
+        }
+    }
+
+    private void ShowItemHotkeyHint(string message)
+    {
+        if (_hotkeyHint is not { } hint)
+        {
+            return;
+        }
+
+        hint.Text = message;
+        hint.IsVisible = message.Length > 0;
     }
 
     /// <summary>分类平铺多选:未分类置顶为隐式状态(全不勾选),分类按「父 / 子」路径平铺为 checkbox,勾选互不联动(父不连带子)。</summary>

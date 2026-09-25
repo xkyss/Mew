@@ -45,7 +45,7 @@ internal sealed class PluginHostApp
     private StackPanel? _pluginPanel;
     private string _pluginNotice = "";
     private StackPanel? _hotkeyPanel;
-    private bool _capturingHotkey;
+    private HotkeyCapture _hotkeyCapture = null!;
     private string _hotkeyNotice = "";
     private PluginDllLoader? _dllLoader;
     private readonly List<IpcClient> _dllIpcClients = [];
@@ -71,6 +71,7 @@ internal sealed class PluginHostApp
         _theme = theme;
         _settings = settings;
         _hotkeys = hotkeys;
+        _hotkeyCapture = new HotkeyCapture(_hotkeys.FindOwner);
         _window = window;
         _context = context;
 
@@ -416,62 +417,28 @@ internal sealed class PluginHostApp
         label.IsVisible = true;
     }
 
+    /// <summary>呼出热键捕获态按键(捕获状态机归约,票据 01 起与启动项每项热键共享 HotkeyCapture):
+    /// 未捕获直通工作台,Esc 清提示退出,提示点亮继续捕获,捕获成功走 ApplyOverlayHotkey 落点。</summary>
     private void OnPluginHostPreviewKeyDown(KeyEventArgs e)
     {
-        if (!_capturingHotkey)
+        var outcome = _hotkeyCapture.Process(e);
+        switch (outcome.Disposition)
         {
-            _workbench.NotifyWindowKeyDown(e);
-            return;
+            case HotkeyCaptureDisposition.PassThrough:
+                _workbench.NotifyWindowKeyDown(e);
+                return;
+            case HotkeyCaptureDisposition.Cancelled:
+                _hotkeyNotice = "";
+                RefreshHotkeyPanel();
+                return;
+            case HotkeyCaptureDisposition.Notice:
+                _hotkeyNotice = outcome.Notice!;
+                RefreshHotkeyPanel();
+                return;
+            case HotkeyCaptureDisposition.Captured:
+                ApplyOverlayHotkey(outcome.Hotkey!, enabled: true);
+                return;
         }
-
-        e.Handled = true;
-        if (e.Key == Key.Escape)
-        {
-            _capturingHotkey = false;
-            _hotkeyNotice = "";
-            RefreshHotkeyPanel();
-            return;
-        }
-
-        var parts = new List<string>();
-        if (e.ControlKey) parts.Add("Ctrl");
-        if (e.AltKey) parts.Add("Alt");
-        if (e.ShiftKey) parts.Add("Shift");
-        if (e.MetaKey) parts.Add("Win");
-        var name = HotkeyKeys.NameOf(e.Key);
-        if (name.Length == 0)
-        {
-            _hotkeyNotice = "请按字母/数字/功能键组合";
-            RefreshHotkeyPanel();
-            return;
-        }
-
-        if (parts.Count == 0)
-        {
-            _hotkeyNotice = "需要至少一个修饰键";
-            RefreshHotkeyPanel();
-            return;
-        }
-
-        parts.Add(name);
-        var hotkey = string.Join("+", parts);
-        if (!HotkeyParser.TryParse(hotkey, out _, out _))
-        {
-            _hotkeyNotice = "不支持的组合";
-            RefreshHotkeyPanel();
-            return;
-        }
-
-        // 冲突预检：本进程已注册热键先点名，宿主侧冲突仍由 IPC ack 兜底
-        var owner = _hotkeys.FindOwner(hotkey);
-        if (owner is not null)
-        {
-            _hotkeyNotice = $"与{owner}的已注册热键冲突";
-            RefreshHotkeyPanel();
-            return;
-        }
-
-        ApplyOverlayHotkey(hotkey, enabled: true);
     }
 
     private void ApplyOverlayHotkey(string? hotkey, bool enabled)
@@ -483,7 +450,6 @@ internal sealed class PluginHostApp
             _settings.OverlayHotkey = hotkey;
         _settings.OverlayHotkeyEnabled = enabled;
         _settings.Save();
-        _capturingHotkey = false;
 
         var ack = OverlayHotkeyIpc.TrySet(hotkey, enabled, out var transportError);
         _hotkeyNotice = ack switch
@@ -524,11 +490,11 @@ internal sealed class PluginHostApp
         var display = enabled ? hotkey : $"{hotkey}（已禁用）";
         var toggle = new ToggleSwitch().IsChecked(enabled)
             .OnCheckedChanged(checked_ => ApplyOverlayHotkey(checked_ ? hotkey : _settings.OverlayHotkey, enabled: checked_));
-        var change = new Button().Content(new Label().Text(_capturingHotkey ? "按组合键…（Esc 取消）" : "更改")).CanDrag(false)
+        var change = new Button().Content(new Label().Text(_hotkeyCapture.IsCapturing ? "按组合键…（Esc 取消）" : "更改")).CanDrag(false)
             .IsEnabled(enabled)
             .OnClick(() =>
             {
-                _capturingHotkey = true;
+                _hotkeyCapture.Begin();
                 _hotkeyNotice = "请直接按键…（Esc 取消）";
                 RefreshHotkeyPanel();
             });

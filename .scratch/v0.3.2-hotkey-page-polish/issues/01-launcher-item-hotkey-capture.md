@@ -4,13 +4,14 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
-- [ ] 启动项表单热键字段 = 捕获按钮（复用/抽取 PluginHostApp `OnPluginHostPreviewKeyDown` 捕获逻辑为可共享组件）
-- [ ] Esc 取消、清空已设热键入口
-- [ ] 冲突预检（FindOwner 点名）+ `HotkeyParser` 校验，错误即时提示
-- [ ] 保存链路不变（每项热键仍经宿主中央热键服务注册）
-- [ ] 无头测试锁定捕获逻辑；全量测试绿
+- [x] 启动项表单热键字段 = 捕获按钮（复用/抽取 PluginHostApp `OnPluginHostPreviewKeyDown` 捕获逻辑为可共享组件）
+- [x] Esc 取消、清空已设热键入口
+- [x] 冲突预检（FindOwner 点名）+ `HotkeyParser` 校验，错误即时提示
+- [x] 保存链路不变（每项热键仍经宿主中央热键服务注册）
+- [x] 无头测试锁定捕获逻辑；全量测试绿
 
 ## Comments
 
+- 2026-09-18（WSL 侧完成）:捕获状态机抽取为 `Mew.Workbench/HotkeyCapture`（归约去向 PassThrough/Cancelled/Notice/Captured,修饰键收集/NameOf/TryParse/FindOwner 点名收敛于此）,呼出热键页与启动项表单共用,`PluginHostApp` 手写捕获分支退役。每项热键字段改「当前值 + 更改(捕获)+ 清空」行,手输 TextField 与即时格式校验退役;格式合法性由捕获路径天然保证(裸键/不可映射键按提示继续捕获)。本项已设组合重复捕获经 `HotkeyParser.IsSameCombo` 屏蔽,不算自身冲突。保存链路不变:捕获成功 → `UpdateCurrent` 落盘 → `ItemHotkeys.RegisterAll`。测试 +11(HotkeyCaptureTests 8 + HotkeyParserTests 3),全量 168 + 104 绿。待 Windows 走查:按键捕获、冲突点名、Esc/清空、与呼出键等跨进程占用的注册失败反馈(经 RegisterAll 失败路径)。

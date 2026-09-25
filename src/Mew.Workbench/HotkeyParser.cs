@@ -48,4 +48,18 @@ public static class HotkeyParser
 
         return HotkeyKeys.TryMapName(parts[^1], out vk);
     }
+
+    /// <summary>两组热键文本是否指同一组合(解析后修饰键+键码相等,与写法顺序无关);任一侧为空或非法返回 false。</summary>
+    public static bool IsSameCombo(string? a, string? b)
+    {
+        if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b))
+        {
+            return false;
+        }
+
+        return TryParse(a, out var modifiersA, out var vkA)
+            && TryParse(b, out var modifiersB, out var vkB)
+            && modifiersA == modifiersB
+            && vkA == vkB;
+    }
 }
