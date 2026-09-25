@@ -23,7 +23,7 @@ ADR-000101-01 锁定 MewUI 0.20.2 的锁版机制不变，本轮为下一次显�
 
 - ADR-000101-01 修订:锁定版本 0.20.2 → 0.21.1;「升级是显式决策、须评审发布说明」的要求原样延续。
 - `LauncherModule.cs` 废弃 API 清零后，下次升级的排查面继续收敛在 MewDockShell + 本轮记录的基线。
-- 若编译断点出现（预期外），逐条补记于此:（无）。
+- 若编译断点出现（预期外），逐条补记于此:（无——0.21.1 编译零错误零警告;实施时口径修正:0.21 正式废弃的是 `ItemsSource` 包装类型/`ItemsView.From`/流式 `.ItemsSource(ItemsSource)` 扩展三件套,本仓库均未使用,`ItemsSource` 属性赋值为现行类型化路径无需迁移,实际断点仅 `ContextMenu.ShowAt` ×2 的 CS0618,已按 `Placement = MenuPlacement.Pointer` + `Show(target)` 迁移）。
 - 本仓库版本迭代为 v0.3.4（`.scratch/v0.3.4-mewui-upgrade/spec.md`），`AppVersion` 随实施提升。
 
 ## Alternatives Rejected

@@ -346,7 +346,14 @@ public sealed class LauncherModule : IMewToolModule
             .Separator()
             .Item(MewCommands.Register(categoryScope, "launcher.category.rename", "重命名", () => RenameCategory(node.Id)))
             .Item(MewCommands.Register(categoryScope, "launcher.category.delete", "删除", () => DeleteCategory(node.Id)));
-        categoryMenu.ShowAt(tree, e.ScreenPosition);
+        ShowAtPointer(categoryMenu, tree);
+    }
+
+    /// <summary>以指针位置为锚弹出右键菜单(0.21 菜单布局模型,替代废弃的 ShowAt)。</summary>
+    private static void ShowAtPointer(ContextMenu menu, UIElement target)
+    {
+        menu.Placement = MenuPlacement.Pointer;
+        menu.Show(target);
     }
 
     /// <summary>删除分类:确认(提示将失去该分类的启动项数量)→ 摘除归属(永不删项,子分类整棵子树一并摘除)→ 刷新树与列表。</summary>
@@ -688,7 +695,7 @@ public sealed class LauncherModule : IMewToolModule
         {
             if (e.RightButton)
             {
-                menu.ShowAt(element, e.ScreenPosition);
+                ShowAtPointer(menu, element);
             }
         };
     }

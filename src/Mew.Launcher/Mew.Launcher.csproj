@@ -23,8 +23,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Aprillz.MewUI" Version="0.20.2" />
-    <PackageReference Include="Aprillz.MewUI.MewDock" Version="0.20.2" />
+    <PackageReference Include="Aprillz.MewUI" Version="0.21.1" />
+    <PackageReference Include="Aprillz.MewUI.MewDock" Version="0.21.1" />
   </ItemGroup>
 
 </Project>
